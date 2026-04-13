@@ -12,7 +12,6 @@ interface OobeSetupViewProps {
 }
 
 function OobeSetupView({
-  expectedHash,
   initialOriginalZipPath,
   initialInstallDir,
   onCompleted,
