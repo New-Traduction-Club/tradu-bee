@@ -12,6 +12,8 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use tauri::{AppHandle, Emitter, Manager};
 use unrar::Archive as RarArchive;
 use zip::ZipArchive;
@@ -26,6 +28,8 @@ const OOBE_ORIGINAL_ARCHIVE_NAME: &str = "ddlc-original.zip";
 const RECIPES_MANIFEST_URL: &str = "https://raw.githubusercontent.com/Just3090/random_shit/refs/heads/main/random.json";
 const DEFAULT_MANIFEST_URL_HINT: &str = RECIPES_MANIFEST_URL;
 const HASH_CHUNK_SIZE: usize = 1024 * 1024;
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 fn default_true() -> bool {
     true
@@ -600,6 +604,13 @@ fn get_running_mod_processes(
     runtime: tauri::State<'_, LauncherRuntimeState>,
 ) -> Result<Vec<String>, String> {
     let state = load_state(&app)?;
+    if state.installed_mods.is_empty() {
+        if let Ok(mut tracked) = runtime.running_processes.lock() {
+            tracked.clear();
+        }
+        return Ok(Vec::new());
+    }
+
     let running_paths = query_running_executable_paths()?;
     let mut running_slugs = Vec::new();
 
@@ -778,10 +789,13 @@ fn launch_installed_mod(
 fn query_running_executable_paths() -> Result<HashSet<String>, String> {
     #[cfg(target_os = "windows")]
     {
-        let output = Command::new("powershell")
+        let output = Command::new("powershell.exe")
+            .creation_flags(CREATE_NO_WINDOW)
             .args([
                 "-NoProfile",
                 "-NonInteractive",
+                "-WindowStyle",
+                "Hidden",
                 "-Command",
                 "Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath } | ForEach-Object { $_.ExecutablePath }",
             ])
