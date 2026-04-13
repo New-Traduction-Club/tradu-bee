@@ -23,14 +23,33 @@
     }
   },
   "bundle": {
-    "active": true,
-    "targets": "all",
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ]
-  }
+      "active": true,
+      "category": "Games",
+      "copyright": "Traduction Club!",
+      "externalBin": [],
+      "icon": [
+        "icons/32x32.png",
+        "icons/128x128.png",
+        "icons/128x128@2x.png",
+        "icons/icon.icns",
+        "icons/icon.ico"
+      ],
+      "longDescription": "Mod Launcher for DDLC developed by Traduction Club!",
+      "macOS": {},
+      "publisher": "Traduction Club!",
+      "shortDescription": "Tradu-Bee Launcher",
+      "targets": ["nsis", "msi"],
+      "windows": {
+        "certificateThumbprint": null,
+        "digestAlgorithm": "sha256",
+        "timestampUrl": "",
+        "wix": {
+          "language": "es-ES"
+        },
+        "nsis": {
+          "installMode": "currentUser",
+          "displayLanguageSelector": true
+        }
+      }
+    }
 }
