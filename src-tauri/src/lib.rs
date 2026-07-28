@@ -12,24 +12,22 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
 use tauri::{AppHandle, Emitter, Manager};
 use unrar::Archive as RarArchive;
 use zip::ZipArchive;
 
 const MOD_API_URL: &str = "https://api-new.dokidokispanish.club/mod/all";
-const EXPECTED_DDLC_SHA256: &str = "2A3DD7969A06729A32ACE0A6ECE5F2327E29BDF460B8B39E6A8B0875E545632E";
+const EXPECTED_DDLC_SHA256: &str =
+    "2A3DD7969A06729A32ACE0A6ECE5F2327E29BDF460B8B39E6A8B0875E545632E";
 const STATE_DB_FILE_NAME: &str = "launcher_state.db";
 const LEGACY_STATE_FILE_NAME: &str = "user_state.json";
 const CACHE_DIR_NAME: &str = "cache";
 const OOBE_DIR_NAME: &str = "oobe";
 const OOBE_ORIGINAL_ARCHIVE_NAME: &str = "ddlc-original.zip";
-const RECIPES_MANIFEST_URL: &str = "https://raw.githubusercontent.com/Just3090/random_shit/refs/heads/main/random.json";
+const RECIPES_MANIFEST_URL: &str =
+    "https://raw.githubusercontent.com/Just3090/random_shit/refs/heads/main/random.json";
 const DEFAULT_MANIFEST_URL_HINT: &str = RECIPES_MANIFEST_URL;
 const HASH_CHUNK_SIZE: usize = 1024 * 1024;
-#[cfg(target_os = "windows")]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 fn default_true() -> bool {
     true
@@ -355,8 +353,7 @@ fn validate_vanilla_zip_impl(
             "N/A (RAR)".to_owned(),
             true,
             Some(
-                "Formato RAR detectado: no existe verificación para validación segura."
-                    .to_owned(),
+                "Formato RAR detectado: no existe verificación para validación segura.".to_owned(),
             ),
         ),
     };
@@ -380,8 +377,8 @@ async fn finalize_oobe_setup(
     tauri::async_runtime::spawn_blocking(move || {
         finalize_oobe_setup_impl(&app_handle, &original_zip_path, global_install_dir)
     })
-        .await
-        .map_err(|err| format!("Debug: error en tarea de OOBE: {err}"))?
+    .await
+    .map_err(|err| format!("Debug: error en tarea de OOBE: {err}"))?
 }
 
 fn finalize_oobe_setup_impl(
@@ -399,9 +396,7 @@ fn finalize_oobe_setup_impl(
     match detect_archive_format(&source_original_zip)? {
         ArchiveFormat::Zip => {}
         ArchiveFormat::Rar => {
-            return Err(
-                "Se requiere el archivo original en formato .zip.".to_owned(),
-            )
+            return Err("Se requiere el archivo original en formato .zip.".to_owned())
         }
     }
 
@@ -417,9 +412,7 @@ fn finalize_oobe_setup_impl(
     copy_file_secure(&source_original_zip, &isolated_zip)?;
     let copied_hash = compute_sha256_chunked(&isolated_zip)?;
     if !copied_hash.eq_ignore_ascii_case(EXPECTED_DDLC_SHA256) {
-        return Err(format!(
-            "La copia local del ZIP original quedó corrupta."
-        ));
+        return Err(format!("La copia local del ZIP original quedó corrupta."));
     }
 
     let mut state = load_state(app)?;
@@ -486,14 +479,7 @@ fn execute_installation_recipe(
 ) -> Result<(), String> {
     let sanitized_slug = sanitize_install_slug(slug)?;
 
-    emit_installation_progress_event(
-        &app,
-        &sanitized_slug,
-        0,
-        "En cola...",
-        "queued",
-        None,
-    );
+    emit_installation_progress_event(&app, &sanitized_slug, 0, "En cola...", "queued", None);
     emit_installation_event(
         &app,
         &sanitized_slug,
@@ -615,15 +601,22 @@ fn get_running_mod_processes(
     let mut running_slugs = Vec::new();
 
     for installed in &state.installed_mods {
-        let executable_path = to_absolute_path(Path::new(&installed.executable_path))?;
-        let normalized_path = normalize_process_path(&executable_path);
-        if running_paths.contains(&normalized_path) {
+        let install_path = to_absolute_path(Path::new(&installed.install_path))?;
+        let normalized_install_path = normalize_process_path(&install_path);
+        let is_running = running_paths
+            .iter()
+            .any(|path| is_process_in_directory(path, &normalized_install_path));
+        if is_running {
             running_slugs.push(installed.slug.clone());
         }
     }
 
     if let Ok(mut tracked) = runtime.running_processes.lock() {
-        tracked.retain(|slug, _| running_slugs.iter().any(|running_slug| running_slug == slug));
+        tracked.retain(|slug, _| {
+            running_slugs
+                .iter()
+                .any(|running_slug| running_slug == slug)
+        });
         for slug in &running_slugs {
             tracked.entry(slug.clone()).or_insert(0);
         }
@@ -650,7 +643,6 @@ fn launch_installed_mod(
 
     let executable_path = to_absolute_path(Path::new(&installed.executable_path))?;
     ensure_file_exists(&executable_path, "ejecutable instalado")?;
-    let normalized_executable_path = normalize_process_path(&executable_path);
     let install_path = to_absolute_path(Path::new(&installed.install_path))?;
     if !path_exists(&install_path) {
         return Err(format!(
@@ -668,7 +660,11 @@ fn launch_installed_mod(
     };
 
     let running_paths = query_running_executable_paths()?;
-    if running_paths.contains(&normalized_executable_path) {
+    let normalized_install_path = normalize_process_path(&install_path);
+    let is_already_running = running_paths
+        .iter()
+        .any(|path| is_process_in_directory(path, &normalized_install_path));
+    if is_already_running {
         {
             let mut running = runtime
                 .running_processes
@@ -722,16 +718,20 @@ fn launch_installed_mod(
     let app_for_watch = app.clone();
     let runtime_for_watch = runtime.inner().clone();
     let slug_for_watch = sanitized_slug.clone();
-    let executable_for_watch = normalized_executable_path.clone();
+    let install_path_for_watch = normalized_install_path.clone();
     std::thread::spawn(move || {
         let mut started = false;
         for _ in 0..20 {
             let running_paths = query_running_executable_paths();
-            if running_paths
+            let is_running = running_paths
                 .as_ref()
-                .map(|paths| paths.contains(&executable_for_watch))
-                .unwrap_or(false)
-            {
+                .map(|paths| {
+                    paths
+                        .iter()
+                        .any(|path| is_process_in_directory(path, &install_path_for_watch))
+                })
+                .unwrap_or(false);
+            if is_running {
                 started = true;
                 break;
             }
@@ -755,7 +755,11 @@ fn launch_installed_mod(
         let mut missing_checks = 0u8;
         loop {
             let is_running = query_running_executable_paths()
-                .map(|paths| paths.contains(&executable_for_watch))
+                .map(|paths| {
+                    paths
+                        .iter()
+                        .any(|path| is_process_in_directory(path, &install_path_for_watch))
+                })
                 .unwrap_or(false);
 
             if is_running {
@@ -789,34 +793,14 @@ fn launch_installed_mod(
 fn query_running_executable_paths() -> Result<HashSet<String>, String> {
     #[cfg(target_os = "windows")]
     {
-        let output = Command::new("powershell.exe")
-            .creation_flags(CREATE_NO_WINDOW)
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-WindowStyle",
-                "Hidden",
-                "-Command",
-                "Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath } | ForEach-Object { $_.ExecutablePath }",
-            ])
-            .output()
-            .map_err(|err| format!("No se pudo consultar procesos del sistema: {err}"))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-            if stderr.is_empty() {
-                return Err("No se pudo consultar procesos del sistema.".to_owned());
-            }
-            return Err(format!("No se pudo consultar procesos del sistema: {stderr}"));
-        }
+        let mut sys = sysinfo::System::new();
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
 
         let mut running_paths = HashSet::new();
-        for line in String::from_utf8_lossy(&output.stdout).lines() {
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                continue;
+        for process in sys.processes().values() {
+            if let Some(exe) = process.exe() {
+                running_paths.insert(normalize_process_path(exe));
             }
-            running_paths.insert(normalize_process_path(Path::new(trimmed)));
         }
 
         Ok(running_paths)
@@ -835,12 +819,22 @@ fn normalize_process_path(path: &Path) -> String {
         .to_owned()
 }
 
+fn is_process_in_directory(process_path: &str, normalized_dir_path: &str) -> bool {
+    let mut dir_prefix = normalized_dir_path.to_owned();
+    if !dir_prefix.ends_with('\\') {
+        dir_prefix.push('\\');
+    }
+    process_path.starts_with(&dir_prefix)
+}
+
 fn sanitize_install_slug(slug: String) -> Result<String, String> {
     let sanitized_slug = slug.trim().to_owned();
     if sanitized_slug.is_empty() {
         return Err("El slug del mod no puede estar vacío.".to_owned());
     }
-    if sanitized_slug.contains('/') || sanitized_slug.contains('\\') || sanitized_slug.contains("..")
+    if sanitized_slug.contains('/')
+        || sanitized_slug.contains('\\')
+        || sanitized_slug.contains("..")
     {
         return Err("El slug contiene caracteres no válidos para una ruta local.".to_owned());
     }
@@ -981,9 +975,15 @@ where
     }
     create_dir_all_safe(&target_dir)?;
 
-    if let Err(err) = run_recipe_steps(recipe, &target_dir, &vanilla_zip, &mod_zip_path, |progress, status| {
-        report_progress(progress, status);
-    }) {
+    if let Err(err) = run_recipe_steps(
+        recipe,
+        &target_dir,
+        &vanilla_zip,
+        &mod_zip_path,
+        |progress, status| {
+            report_progress(progress, status);
+        },
+    ) {
         cleanup_failed_installation_target(&target_dir);
         return Err(format!("{err}{}", debug_preserve_note(&target_dir)));
     }
@@ -1170,8 +1170,12 @@ fn resolve_copy_source_path(source: &Path) -> Result<PathBuf, String> {
         ));
     }
 
-    let entries = fs::read_dir(fs_path(parent))
-        .map_err(|err| format!("No se pudo leer `{}` para inferencia: {err}", parent.display()))?;
+    let entries = fs::read_dir(fs_path(parent)).map_err(|err| {
+        format!(
+            "No se pudo leer `{}` para inferencia: {err}",
+            parent.display()
+        )
+    })?;
     let mut available_dirs = Vec::new();
 
     for entry in entries {
@@ -1191,6 +1195,17 @@ fn resolve_copy_source_path(source: &Path) -> Result<PathBuf, String> {
 
     if available_dirs.len() == 1 {
         let inferred = available_dirs[0].clone();
+        if let Some(file_name) = source.file_name() {
+            let path_with_suffix = inferred.join(file_name);
+            if path_exists(&path_with_suffix) {
+                debug_log(format!(
+                    "copy_overwrite source missing. requested=`{}` inferred_with_suffix=`{}`",
+                    source.display(),
+                    path_with_suffix.display()
+                ));
+                return Ok(path_with_suffix);
+            }
+        }
         debug_log(format!(
             "copy_overwrite source missing. requested=`{}` inferred=`{}`",
             source.display(),
@@ -1393,8 +1408,12 @@ fn recursive_copy(source: &Path, destination: &Path) -> Result<(), String> {
     }
 
     create_dir_all_safe(destination)?;
-    let entries = fs::read_dir(fs_path(source))
-        .map_err(|err| format!("No se pudo leer el directorio `{}`: {err}", source.display()))?;
+    let entries = fs::read_dir(fs_path(source)).map_err(|err| {
+        format!(
+            "No se pudo leer el directorio `{}`: {err}",
+            source.display()
+        )
+    })?;
 
     for entry in entries {
         let entry = entry.map_err(|err| {
@@ -1536,7 +1555,10 @@ fn detect_archive_format(path: &Path) -> Result<ArchiveFormat, String> {
 
 fn infer_archive_extension_from_url(url: &str) -> Option<&'static str> {
     let without_fragment = url.split('#').next().unwrap_or(url);
-    let without_query = without_fragment.split('?').next().unwrap_or(without_fragment);
+    let without_query = without_fragment
+        .split('?')
+        .next()
+        .unwrap_or(without_fragment);
     let extension = Path::new(without_query)
         .extension()
         .and_then(|ext| ext.to_str())
@@ -1574,16 +1596,21 @@ fn fetch_recipe_manifest(client: &Client, manifest_url: &str) -> Result<RecipeMa
     let response = client
         .get(manifest_url)
         .send()
-        .map_err(|err| format!("No se pudieron descargar las instrucciones (`{manifest_url}`): {err}"))?
+        .map_err(|err| {
+            format!("No se pudieron descargar las instrucciones (`{manifest_url}`): {err}")
+        })?
         .error_for_status()
         .map_err(|err| format!("El servidor devolvió error HTTP (`{manifest_url}`): {err}"))?;
 
-    response
-        .json::<RecipeManifest>()
-        .map_err(|err| format!("No se pudieron parsear las instrucciones (`{manifest_url}`): {err}"))
+    response.json::<RecipeManifest>().map_err(|err| {
+        format!("No se pudieron parsear las instrucciones (`{manifest_url}`): {err}")
+    })
 }
 
-fn build_supported_mods(manifest: &RecipeManifest, remote_mods: &[ClubModEnvelope]) -> Vec<SupportedMod> {
+fn build_supported_mods(
+    manifest: &RecipeManifest,
+    remote_mods: &[ClubModEnvelope],
+) -> Vec<SupportedMod> {
     let mut mods = remote_mods
         .iter()
         .filter_map(|entry| {
@@ -1611,10 +1638,7 @@ fn build_supported_mods(manifest: &RecipeManifest, remote_mods: &[ClubModEnvelop
                 },
                 downloadable: recipe.downloadable,
                 status: entry.resource.status.clone(),
-                current_version: entry
-                    .info
-                    .as_ref()
-                    .and_then(|info| info.updated_at.clone()),
+                current_version: entry.info.as_ref().and_then(|info| info.updated_at.clone()),
                 executable: recipe.executable.clone(),
                 description_html: entry.resource.description.clone(),
                 hero_image_url: first_image_url(&entry.resource.images, "main"),
@@ -1767,8 +1791,12 @@ fn open_state_db(app: &AppHandle) -> Result<Connection, String> {
         create_dir_all_safe(parent)?;
     }
 
-    let connection = Connection::open(&db_path)
-        .map_err(|err| format!("No se pudo abrir base SQLite `{}`: {err}", db_path.display()))?;
+    let connection = Connection::open(&db_path).map_err(|err| {
+        format!(
+            "No se pudo abrir base SQLite `{}`: {err}",
+            db_path.display()
+        )
+    })?;
     initialize_state_db(&connection)?;
     Ok(connection)
 }
@@ -1794,7 +1822,10 @@ fn initialize_state_db(connection: &Connection) -> Result<(), String> {
         .map_err(|err| format!("No se pudo inicializar SQLite: {err}"))
 }
 
-fn migrate_legacy_state_if_needed(app: &AppHandle, connection: &mut Connection) -> Result<(), String> {
+fn migrate_legacy_state_if_needed(
+    app: &AppHandle,
+    connection: &mut Connection,
+) -> Result<(), String> {
     let preference_count: i64 = connection
         .query_row("SELECT COUNT(*) FROM preferences", [], |row| row.get(0))
         .map_err(|err| format!("No se pudo consultar preferencias en la base de datos: {err}"))?;
@@ -1810,21 +1841,40 @@ fn migrate_legacy_state_if_needed(app: &AppHandle, connection: &mut Connection) 
         return Ok(());
     }
 
-    let content = fs::read_to_string(fs_path(&legacy_path)).map_err(|err| {
-        format!(
-            "No se pudo leer estado legacy `{}`: {err}",
-            legacy_path.display()
-        )
-    })?;
-    let mut legacy_state: LauncherState = serde_json::from_str(&content)
-        .map_err(|err| format!("No se pudo parsear estado debug user_state.json: {err}"))?;
+    let content = match fs::read_to_string(fs_path(&legacy_path)) {
+        Ok(c) => c,
+        Err(err) => {
+            debug_log(format!(
+                "No se pudo leer estado legacy `{}`: {err}",
+                legacy_path.display()
+            ));
+            let corrupted_path = legacy_path.with_extension("corrupted");
+            let _ = fs::rename(fs_path(&legacy_path), fs_path(&corrupted_path));
+            return Ok(());
+        }
+    };
+
+    let mut legacy_state: LauncherState = match serde_json::from_str(&content) {
+        Ok(state) => state,
+        Err(err) => {
+            debug_log(format!(
+                "No se pudo parsear estado `{}` {err}",
+                legacy_path.display()
+            ));
+            let corrupted_path = legacy_path.with_extension("corrupted");
+            let _ = fs::rename(fs_path(&legacy_path), fs_path(&corrupted_path));
+            return Ok(());
+        }
+    };
+
     if legacy_state
         .global_install_dir
         .as_ref()
         .map(|path| path.trim().is_empty())
         .unwrap_or(true)
     {
-        legacy_state.global_install_dir = Some(default_install_dir().to_string_lossy().into_owned());
+        legacy_state.global_install_dir =
+            Some(default_install_dir().to_string_lossy().into_owned());
     }
 
     persist_state_in_db(connection, &legacy_state)?;
@@ -1866,7 +1916,9 @@ fn read_bool_preference(connection: &Connection, key: &str) -> Result<Option<boo
         .map(|value| match value {
             "1" | "true" | "TRUE" | "True" => Ok(true),
             "0" | "false" | "FALSE" | "False" => Ok(false),
-            _ => Err(format!("La preferencia booleana `{key}` contiene valor inválido.")),
+            _ => Err(format!(
+                "La preferencia booleana `{key}` contiene valor inválido."
+            )),
         })
         .transpose()?;
     Ok(parsed)
@@ -1894,9 +1946,8 @@ fn read_installed_mods(connection: &Connection) -> Result<Vec<InstalledMod>, Str
 
     let mut installed_mods = Vec::new();
     for row in rows {
-        installed_mods.push(
-            row.map_err(|err| format!("No se pudo mapear fila de instalación: {err}"))?,
-        );
+        installed_mods
+            .push(row.map_err(|err| format!("No se pudo mapear fila de instalación: {err}"))?);
     }
     Ok(installed_mods)
 }
@@ -2044,8 +2095,9 @@ fn ensure_install_dir_allowed(path: &Path) -> Result<(), String> {
         let disallowed_roots = ["c:\\program files", "c:\\program files (x86)"];
         for root in disallowed_roots {
             if raw == root || raw.starts_with(&format!("{root}\\")) {
-                return Err("Por seguridad de UAC, selecciona una ruta fuera de Program Files."
-                    .to_owned());
+                return Err(
+                    "Por seguridad de UAC, selecciona una ruta fuera de Program Files.".to_owned(),
+                );
             }
         }
     }
@@ -2061,7 +2113,10 @@ fn ensure_file_exists(path: &Path, label: &str) -> Result<(), String> {
 }
 
 fn upsert_installed_mod(installed_mods: &mut Vec<InstalledMod>, item: InstalledMod) {
-    if let Some(existing) = installed_mods.iter_mut().find(|entry| entry.slug == item.slug) {
+    if let Some(existing) = installed_mods
+        .iter_mut()
+        .find(|entry| entry.slug == item.slug)
+    {
         *existing = item;
     } else {
         installed_mods.push(item);
@@ -2198,10 +2253,7 @@ fn fs_path(path: &Path) -> PathBuf {
             return PathBuf::from(normalized);
         }
         if normalized.starts_with(r"\\") {
-            return PathBuf::from(format!(
-                r"\\?\UNC\{}",
-                normalized.trim_start_matches(r"\\")
-            ));
+            return PathBuf::from(format!(r"\\?\UNC\{}", normalized.trim_start_matches(r"\\")));
         }
         if path.is_absolute() {
             return PathBuf::from(format!(r"\\?\{normalized}"));
@@ -2231,4 +2283,68 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn test_resolve_recipe_path() {
+        let root = Path::new("C:\\games\\ddlc");
+        assert_eq!(
+            resolve_recipe_path(root, "game/scripts.rpy").unwrap(),
+            PathBuf::from("C:\\games\\ddlc\\game\\scripts.rpy")
+        );
+        assert_eq!(
+            resolve_recipe_path(root, "./game/scripts.rpy").unwrap(),
+            PathBuf::from("C:\\games\\ddlc\\game\\scripts.rpy")
+        );
+        assert!(resolve_recipe_path(root, "../game").is_err());
+        assert!(resolve_recipe_path(root, "/absolute/path").is_err());
+    }
+
+    #[test]
+    fn test_sanitize_archive_entry_path() {
+        assert_eq!(
+            sanitize_archive_entry_path(Path::new("game/script.rpyc")).unwrap(),
+            PathBuf::from("game/script.rpyc")
+        );
+        assert!(sanitize_archive_entry_path(Path::new("../script.rpyc")).is_err());
+        assert!(sanitize_archive_entry_path(Path::new("/script.rpyc")).is_err());
+        assert!(sanitize_archive_entry_path(Path::new("")).is_err());
+    }
+
+    #[test]
+    fn test_resolve_copy_source_path() {
+        let mut temp_root = std::env::temp_dir();
+        temp_root.push(format!("tradu_bee_test_{}", now_epoch_millis()));
+        let _ = fs::create_dir_all(&temp_root);
+
+        // Case 1: Source exists directly
+        let case1_root = temp_root.join("case1");
+        let source_direct = case1_root.join("direct_folder");
+        let _ = fs::create_dir_all(&source_direct);
+        assert_eq!(
+            resolve_copy_source_path(&source_direct).unwrap(),
+            source_direct
+        );
+
+        // Case 2: Source does not exist, but there's a nested folder with suffix
+        let case2_root = temp_root.join("case2");
+        let _ = fs::create_dir_all(&case2_root);
+        let requested_source = case2_root.join("game");
+        let nested_mod_dir = case2_root.join("DokiDokiMod-1.0");
+        let actual_game_dir = nested_mod_dir.join("game");
+        let _ = fs::create_dir_all(&actual_game_dir);
+
+        assert_eq!(
+            resolve_copy_source_path(&requested_source).unwrap(),
+            actual_game_dir
+        );
+
+        let _ = fs::remove_dir_all(&temp_root);
+    }
 }

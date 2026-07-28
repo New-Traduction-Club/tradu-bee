@@ -244,6 +244,11 @@ function LauncherClient() {
       }
     };
 
+    const handleFocus = () => {
+      void syncRunningProcesses(true);
+    };
+    window.addEventListener("focus", handleFocus);
+
     void (async () => {
       try {
         const state = await refreshLauncherState();
@@ -336,7 +341,7 @@ function LauncherClient() {
 
       runningPollTimer = window.setInterval(() => {
         void syncRunningProcesses();
-      }, 2500);
+      }, 20000);
     })();
 
     return () => {
@@ -353,6 +358,7 @@ function LauncherClient() {
       if (runningPollTimer) {
         window.clearInterval(runningPollTimer);
       }
+      window.removeEventListener("focus", handleFocus);
     };
   }, []);
 
