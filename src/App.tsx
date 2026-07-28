@@ -546,11 +546,10 @@ function ExploreRoute({
                   key={mod.slug}
                   type="button"
                   onClick={() => onSelect(mod.slug)}
-                  className={`w-full rounded-lg border p-2 text-left transition ${
-                    selected
+                  className={`w-full rounded-lg border p-2 text-left transition ${selected
                       ? "border-yellow-500/60 bg-slate-800"
                       : "border-slate-800 bg-slate-950 hover:bg-slate-800/50"
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center gap-3">
                     {mod.logoImageUrl ? (
@@ -600,11 +599,10 @@ function ExploreRoute({
                       <button
                         type="button"
                         onClick={() => void onPlay(selectedMod.slug)}
-                        className={`rounded-lg px-5 py-2.5 text-sm font-semibold transition ${
-                          selectedIsRunning
+                        className={`rounded-lg px-5 py-2.5 text-sm font-semibold transition ${selectedIsRunning
                             ? "cursor-not-allowed border border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
                             : "bg-gradient-to-r from-yellow-500 to-orange-500 text-slate-950 hover:brightness-110"
-                        }`}
+                          }`}
                         disabled={selectedIsRunning}
                       >
                         {selectedIsRunning ? "Ejecutando" : "Jugar"}
@@ -633,18 +631,22 @@ function ExploreRoute({
                       }
                     >
                       {installRequestSlug === selectedMod.slug ||
-                      runningInstallationSlugs.has(selectedMod.slug)
+                        runningInstallationSlugs.has(selectedMod.slug)
                         ? "Procesando..."
                         : "Instalar"}
                     </button>
                   )}
 
-                  {!selectedInstalled && !selectedMod.downloadable && (
+                  {!selectedInstalled && (
                     <>
                       <button
                         type="button"
                         onClick={() => void onOpenManualDownload(selectedMod)}
-                        className="rounded-lg border border-amber-500/50 bg-amber-500/10 px-4 py-2.5 text-sm font-medium text-amber-200 transition hover:border-amber-400"
+                        className={
+                          selectedMod.downloadable
+                            ? "rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm font-medium text-slate-100 transition hover:border-slate-600"
+                            : "rounded-lg border border-amber-500/50 bg-amber-500/10 px-4 py-2.5 text-sm font-medium text-amber-200 transition hover:border-amber-400"
+                        }
                       >
                         Descarga manual
                       </button>
@@ -653,18 +655,29 @@ function ExploreRoute({
                         onClick={() => void onSelectManualArchive(selectedMod.slug)}
                         className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm font-medium text-slate-100 transition hover:border-slate-600"
                       >
-                        Seleccionar .zip/.rar
+                        {manualArchiveBySlug[selectedMod.slug] ? "Cambiar archivo" : "Seleccionar archivo"}
                       </button>
                     </>
                   )}
                 </div>
 
-                {!selectedInstalled && !selectedMod.downloadable && (
-                  <p className="mt-3 text-xs text-amber-300">
-                    Este mod requiere descarga manual.
-                    {manualArchiveBySlug[selectedMod.slug]
-                      ? ` Archivo seleccionado: ${manualArchiveBySlug[selectedMod.slug]}`
-                      : " Después de descargar, selecciona el archivo para instalar."}
+                {!selectedInstalled && (
+                  <p className="mt-3 text-xs text-slate-400">
+                    {selectedMod.downloadable ? (
+                      manualArchiveBySlug[selectedMod.slug] ? (
+                        <span className="text-emerald-400">
+                          ✓ Archivo local seleccionado: {manualArchiveBySlug[selectedMod.slug]} (se instalará sin descargar)
+                        </span>
+                      ) : (
+                        "Este mod se descargará e instalará automáticamente."
+                      )
+                    ) : (
+                      <span className="text-amber-300">
+                        {manualArchiveBySlug[selectedMod.slug]
+                          ? ` Archivo seleccionado: ${manualArchiveBySlug[selectedMod.slug]}`
+                          : "Este mod requiere descarga manual. Descarga y selecciona el archivo."}
+                      </span>
+                    )}
                   </p>
                 )}
               </div>
@@ -723,11 +736,10 @@ function LibraryRoute({
                   key={mod.slug}
                   type="button"
                   onClick={() => onSelect(mod.slug)}
-                  className={`w-full rounded-lg border p-2 text-left transition ${
-                    isSelected
+                  className={`w-full rounded-lg border p-2 text-left transition ${isSelected
                       ? "border-yellow-500/60 bg-slate-800"
                       : "border-slate-800 bg-slate-950 hover:bg-slate-800/50"
-                  }`}
+                    }`}
                 >
                   <p className="truncate text-sm font-medium">{mod.name}</p>
                   <p className="mt-1 truncate text-xs text-slate-400">
@@ -760,11 +772,10 @@ function LibraryRoute({
                   <button
                     type="button"
                     onClick={() => void onPlay(selected.slug)}
-                    className={`rounded-lg px-5 py-2.5 text-sm font-semibold transition ${
-                      selectedIsRunning
+                    className={`rounded-lg px-5 py-2.5 text-sm font-semibold transition ${selectedIsRunning
                         ? "cursor-not-allowed border border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
                         : "bg-gradient-to-r from-yellow-500 to-orange-500 text-slate-950 hover:brightness-110"
-                    }`}
+                      }`}
                     disabled={selectedIsRunning}
                   >
                     {selectedIsRunning ? "Ejecutando" : "Jugar"}
@@ -990,11 +1001,10 @@ function topNavigationLinkClassName({
 }: {
   isActive: boolean;
 }) {
-  return `rounded-md border px-3 py-1.5 text-sm transition ${
-    isActive
+  return `rounded-md border px-3 py-1.5 text-sm transition ${isActive
       ? "border-yellow-500/50 bg-slate-800 text-yellow-300"
       : "border-slate-800 bg-slate-950 text-slate-200 hover:border-slate-700 hover:bg-slate-800"
-  }`;
+    }`;
 }
 
 function statusBadgeClasses(status: string) {

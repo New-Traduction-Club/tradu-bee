@@ -203,6 +203,7 @@ pub fn extract_zip_archive(zip_path: &Path, destination: &Path) -> Result<(), St
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn infer_archive_extension_from_url(url: &str) -> Option<&'static str> {
     let without_fragment = url.split('#').next().unwrap_or(url);
     let without_query = without_fragment

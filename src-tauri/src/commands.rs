@@ -2,7 +2,7 @@ use reqwest::blocking::Client;
 use std::{path::Path, process::Command, time::Duration};
 use tauri::{AppHandle, State};
 
-use crate::extractor::{detect_archive_format, infer_archive_extension_from_url, ArchiveFormat};
+use crate::extractor::{detect_archive_format, ArchiveFormat};
 use crate::process::{
     is_process_in_directory, normalize_process_path, query_running_executable_paths,
     sanitize_install_slug, spawn_mod_watcher_thread,
@@ -18,7 +18,7 @@ use crate::state::{
 use crate::utils::{
     cleanup_failed_installation_target, compute_sha256_chunked, copy_file_secure,
     create_dir_all_safe, debug_log, debug_preserve_note, ensure_file_exists, now_epoch_millis,
-    path_exists, remove_file_safe, sanitize_slug_for_filename, to_absolute_path,
+    path_exists, sanitize_slug_for_filename, to_absolute_path,
 };
 
 #[tauri::command]
@@ -590,7 +590,7 @@ where
     }
 
     report_progress(45, "Preparing mod archive...");
-    let mod_zip_path = if recipe.downloadable {
+    let mod_zip_path = if recipe.downloadable && user_provided_zip_path.is_none() {
         let mod_download_url = selected_mod.resource.download_pc.trim().to_owned();
         if mod_download_url.is_empty() {
             return Err(format!(
@@ -599,18 +599,13 @@ where
         }
 
         let cache_dir = crate::state::cache_dir_path(app)?;
-        let archive_extension =
-            infer_archive_extension_from_url(&mod_download_url).unwrap_or("zip");
-        let cache_path = cache_dir.join(format!(
-            "{}.{}",
-            sanitize_slug_for_filename(slug),
-            archive_extension
-        ));
-        if path_exists(&cache_path) {
-            remove_file_safe(&cache_path)?;
-        }
-
-        download_to_file(&client, &mod_download_url, &cache_path)?;
+        let cache_path = crate::downloader::download_to_file(
+            &client,
+            &mod_download_url,
+            &cache_dir,
+            &sanitize_slug_for_filename(slug),
+        )
+        .map_err(|err| format!("Automatic download failed: {err}\n\n{mod_download_url}"))?;
         detect_archive_format(&cache_path)?;
         cache_path
     } else {
@@ -713,34 +708,6 @@ fn uninstall_mod_impl(app: &AppHandle, slug: &str) -> Result<(), String> {
 
     state.installed_mods.remove(index);
     save_state(app, &state)?;
-
-    Ok(())
-}
-
-fn download_to_file(client: &Client, url: &str, target_path: &Path) -> Result<(), String> {
-    if let Some(parent) = target_path.parent() {
-        create_dir_all_safe(parent)?;
-    }
-
-    let mut response = client
-        .get(url)
-        .send()
-        .map_err(|err| format!("No se pudo descargar `{url}`: {err}"))?
-        .error_for_status()
-        .map_err(|err| format!("La descarga de `{url}` devolvió error HTTP: {err}"))?;
-
-    let mut file = std::fs::File::create(crate::utils::fs_path(target_path)).map_err(|err| {
-        format!(
-            "No se pudo crear el archivo cacheado `{}`: {err}",
-            target_path.display()
-        )
-    })?;
-    std::io::copy(&mut response, &mut file).map_err(|err| {
-        format!(
-            "No se pudo escribir el archivo descargado `{}`: {err}",
-            target_path.display()
-        )
-    })?;
 
     Ok(())
 }
