@@ -4,7 +4,7 @@ export const strings = {
   uninstall: "Desinstalar",
   uninstalling: "Desinstalando...",
   install: "Instalar",
-  processing: "Procesando...",
+  processing: "Instalando...",
   cancel: "Cancelar",
   cancelling: "Cancelando...",
   advancedOptions: "Opciones avanzadas",
@@ -32,5 +32,13 @@ export const strings = {
   autoDownloadInfo: "Este mod se descargará e instalará automáticamente.",
   backgroundInstallStarted: "Instalación iniciada en segundo plano para",
   uninstallCompleted: "Desinstalación completada",
-  uninstallRequiredWarn: "No se puede desinstalar el mod mientras se está ejecutando."
+  uninstallRequiredWarn: "No se puede desinstalar el mod mientras se está ejecutando.",
+  noScreenshots: "Este mod no tiene capturas de pantalla.",
+  screenshots: "Capturas",
+  previous: "Anterior",
+  next: "Siguiente",
+  close: "Cerrar",
+  notifications: "Notificaciones",
+  showNotifications: "Notificaciones",
+  hide: "Ocultar"
 };

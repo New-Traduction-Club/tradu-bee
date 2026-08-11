@@ -16,10 +16,10 @@ pub fn install_mod_files_generic(
     mut report_progress: impl FnMut(u8, &str),
 ) -> Result<String, String> {
     if is_cancelled() {
-        return Err("Installation cancelled by user.".to_owned());
+        return Err("Instalación cancelada.".to_owned());
     }
 
-    report_progress(50, "Extracting base game files...");
+    report_progress(50, "Extrayendo DDLC...");
     let temp_ddlc = target_dir.join("temp_ddlc");
     if path_exists(&temp_ddlc) {
         remove_dir_all_safe(&temp_ddlc)?;
@@ -29,10 +29,10 @@ pub fn install_mod_files_generic(
 
     if is_cancelled() {
         let _ = remove_dir_all_safe(&temp_ddlc);
-        return Err("Installation cancelled by user.".to_owned());
+        return Err("Instalación cancelada.".to_owned());
     }
 
-    report_progress(70, "Extracting mod files...");
+    report_progress(70, "Extrayendo el mod...");
     let temp_mod = target_dir.join("temp_mod");
     if path_exists(&temp_mod) {
         remove_dir_all_safe(&temp_mod)?;
@@ -43,26 +43,26 @@ pub fn install_mod_files_generic(
     if is_cancelled() {
         let _ = remove_dir_all_safe(&temp_ddlc);
         let _ = remove_dir_all_safe(&temp_mod);
-        return Err("Installation cancelled by user.".to_owned());
+        return Err("Instalación cancelada.".to_owned());
     }
 
-    report_progress(80, "Merging base game files...");
+    report_progress(80, "Copiando archivos...");
     let base_src = resolve_copy_source_path(&temp_ddlc.join("game"))?;
     let base_root = base_src
         .parent()
-        .ok_or_else(|| "Failed to find parent of base source path.".to_owned())?;
+        .ok_or_else(|| "Error al bsucar la carpeta de origen.".to_owned())?;
     recursive_copy(base_root, target_dir)?;
 
     if is_cancelled() {
         let _ = remove_dir_all_safe(&temp_ddlc);
         let _ = remove_dir_all_safe(&temp_mod);
-        return Err("Installation cancelled by user.".to_owned());
+        return Err("Instalación cancelada.".to_owned());
     }
 
-    report_progress(85, "Merging translation files...");
+    report_progress(85, "Copiando archivos del mod...");
     let mod_src_root = resolve_mod_extraction_root(&temp_mod)?;
     debug_log(format!(
-        "Resolved mod source root to: {}",
+        "Ruta del mod encontrada: {}",
         mod_src_root.display()
     ));
 
@@ -76,17 +76,17 @@ pub fn install_mod_files_generic(
         recursive_copy(&mod_src_root, &target_game_dir)?;
     }
 
-    report_progress(92, "Cleaning up temporary files...");
+    report_progress(92, "Limpiando archivos temporales...");
     let _ = remove_dir_all_safe(&temp_ddlc);
     let _ = remove_dir_all_safe(&temp_mod);
 
     if is_cancelled() {
-        return Err("Installation cancelled by user.".to_owned());
+        return Err("Instalación cancelada.".to_owned());
     }
 
-    report_progress(96, "Detecting launcher executable...");
+    report_progress(96, "Buscando el ejecutable...");
     let exe_name = detect_installed_executable(target_dir)?;
-    debug_log(format!("Detected launcher executable: {exe_name}"));
+    debug_log(format!("Ejecutable del mod: {exe_name}"));
 
     Ok(exe_name)
 }
@@ -94,7 +94,7 @@ pub fn install_mod_files_generic(
 pub fn resolve_mod_extraction_root(extracted_dir: &Path) -> Result<PathBuf, String> {
     let entries = std::fs::read_dir(fs_path(extracted_dir)).map_err(|err| {
         format!(
-            "Failed to read directory `{}`: {err}",
+            "Error al leer la carpeta `{}`: {err}",
             extracted_dir.display()
         )
     })?;
@@ -103,7 +103,7 @@ pub fn resolve_mod_extraction_root(extracted_dir: &Path) -> Result<PathBuf, Stri
     let mut dirs = Vec::new();
 
     for entry in entries {
-        let entry = entry.map_err(|err| format!("Failed to read entry: {err}"))?;
+        let entry = entry.map_err(|err| format!("Error {err}"))?;
         let path = entry.path();
         if path.is_file() {
             files.push(path);
@@ -132,12 +132,12 @@ pub fn resolve_mod_extraction_root(extracted_dir: &Path) -> Result<PathBuf, Stri
 
 pub fn detect_installed_executable(target_dir: &Path) -> Result<String, String> {
     let entries = std::fs::read_dir(fs_path(target_dir))
-        .map_err(|err| format!("Failed to read target directory: {err}"))?;
+        .map_err(|err| format!("Error al leer la carpeta: {err}"))?;
 
     let mut exe_files = Vec::new();
 
     for entry in entries {
-        let entry = entry.map_err(|err| format!("Failed to read entry: {err}"))?;
+        let entry = entry.map_err(|err| format!("Error: {err}"))?;
         let path = entry.path();
         if path.is_file() {
             if let Some(ext) = path.extension() {
@@ -189,9 +189,7 @@ pub fn resolve_recipe_path(root: &Path, recipe_relative_path: &str) -> Result<Pa
 
     let recipe_path = Path::new(trimmed);
     if recipe_path.is_absolute() {
-        return Err(format!(
-            "Absolute paths not allowed in instructions: `{trimmed}`"
-        ));
+        return Err(format!("Error: `{trimmed}`"));
     }
 
     let mut normalized = PathBuf::new();
@@ -200,7 +198,7 @@ pub fn resolve_recipe_path(root: &Path, recipe_relative_path: &str) -> Result<Pa
             Component::CurDir => {}
             Component::Normal(segment) => normalized.push(segment),
             Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
-                return Err(format!("Unsafe path segments in instructions: `{trimmed}`"));
+                return Err(format!("Error: `{trimmed}`"));
             }
         }
     }
@@ -213,28 +211,22 @@ pub fn resolve_copy_source_path(source: &Path) -> Result<PathBuf, String> {
         return Ok(source.to_path_buf());
     }
 
-    let parent = source.parent().ok_or_else(|| {
-        format!(
-            "Could not resolve parent directory for: `{}`",
-            source.display()
-        )
-    })?;
+    let parent = source
+        .parent()
+        .ok_or_else(|| format!("Error al resolver la ruta: `{}`", source.display()))?;
     if !path_exists(parent) {
-        return Err(format!(
-            "Parent directory `{}` does not exist.",
-            parent.display()
-        ));
+        return Err(format!("La carepta `{}` no existe.", parent.display()));
     }
 
     let entries = fs::read_dir(fs_path(parent))
-        .map_err(|err| format!("Failed to read directory `{}`: {err}", parent.display()))?;
+        .map_err(|err| format!("Error al leer `{}`: {err}", parent.display()))?;
     let mut available_dirs = Vec::new();
 
     for entry in entries {
-        let entry = entry.map_err(|err| format!("Failed to read entry: {err}"))?;
+        let entry = entry.map_err(|err| format!("Error al leer: {err}"))?;
         let file_type = entry
             .file_type()
-            .map_err(|err| format!("Failed to read file type: {err}"))?;
+            .map_err(|err| format!("Error al leer: {err}"))?;
         if file_type.is_dir() {
             available_dirs.push(parent.join(entry.file_name()));
         }
@@ -261,13 +253,13 @@ pub fn resolve_copy_source_path(source: &Path) -> Result<PathBuf, String> {
             .join(", ")
     };
     Err(format!(
-        "Failed to locate source directory. Available subdirectories: {available}"
+        "Error al buscar carpeta origen. Subdcarpetas: {available}"
     ))
 }
 
 pub fn recursive_copy(source: &Path, destination: &Path) -> Result<(), String> {
     let source_meta = fs::metadata(fs_path(source))
-        .map_err(|err| format!("Failed to access `{}`: {err}", source.display()))?;
+        .map_err(|err| format!("Error `{}`: {err}", source.display()))?;
 
     if source_meta.is_file() {
         copy_file_overwrite(source, destination)?;
@@ -276,14 +268,14 @@ pub fn recursive_copy(source: &Path, destination: &Path) -> Result<(), String> {
 
     create_dir_all_safe(destination)?;
     let entries = fs::read_dir(fs_path(source))
-        .map_err(|err| format!("Failed to read directory `{}`: {err}", source.display()))?;
+        .map_err(|err| format!("Error `{}`: {err}", source.display()))?;
 
     for entry in entries {
-        let entry = entry.map_err(|err| format!("Failed to copy entry: {err}"))?;
+        let entry = entry.map_err(|err| format!("Error al copiar: {err}"))?;
         let entry_path = entry.path();
         let relative_path = entry_path
             .strip_prefix(fs_path(source))
-            .map_err(|err| format!("Failed to resolve relative path: {err}"))?;
+            .map_err(|err| format!("Error al buscar ruta relativa: {err}"))?;
         let target_path = destination.join(relative_path);
 
         recursive_copy(&entry_path, &target_path)?;

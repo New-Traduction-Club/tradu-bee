@@ -555,8 +555,8 @@ function ExploreRoute({
                   type="button"
                   onClick={() => onSelect(mod.slug)}
                   className={`w-full rounded-lg border p-2 text-left transition ${selected
-                      ? "border-yellow-500/60 bg-slate-800"
-                      : "border-slate-800 bg-slate-950 hover:bg-slate-800/50"
+                    ? "border-yellow-500/60 bg-slate-800"
+                    : "border-slate-800 bg-slate-950 hover:bg-slate-800/50"
                     }`}
                 >
                   <div className="flex items-center gap-3">
@@ -600,7 +600,7 @@ function ExploreRoute({
 
             <section className="-mt-7 px-6">
               <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 shadow-2xl">
-                <h3 className="text-sm font-semibold text-slate-200">Acciones</h3>
+                <h3 className="text-sm font-semibold text-slate-200"></h3>
                 <div className="mt-3 flex flex-wrap items-center gap-3">
                   {selectedInstalled ? (
                     <>
@@ -608,8 +608,8 @@ function ExploreRoute({
                         type="button"
                         onClick={() => void onPlay(selectedMod.slug)}
                         className={`rounded-lg px-5 py-2.5 text-sm font-semibold transition ${selectedIsRunning
-                            ? "cursor-not-allowed border border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
-                            : "bg-gradient-to-r from-yellow-500 to-orange-500 text-slate-950 hover:brightness-110"
+                          ? "cursor-not-allowed border border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
+                          : "bg-gradient-to-r from-yellow-500 to-orange-500 text-slate-950 hover:brightness-110"
                           }`}
                         disabled={selectedIsRunning}
                       >
@@ -744,21 +744,31 @@ function LibraryRoute({
           <div className="space-y-2">
             {mods.map((mod) => {
               const isSelected = mod.slug === selected?.slug;
-              const isRunning = runningProcessSlugs.has(mod.slug);
               return (
                 <button
                   key={mod.slug}
                   type="button"
                   onClick={() => onSelect(mod.slug)}
+                  onDoubleClick={() => void onPlay(mod.slug)}
                   className={`w-full rounded-lg border p-2 text-left transition ${isSelected
-                      ? "border-yellow-500/60 bg-slate-800"
-                      : "border-slate-800 bg-slate-950 hover:bg-slate-800/50"
+                    ? "border-yellow-500/60 bg-slate-800"
+                    : "border-slate-800 bg-slate-950 hover:bg-slate-800/50"
                     }`}
                 >
-                  <p className="truncate text-sm font-medium">{mod.name}</p>
-                  <p className="mt-1 truncate text-xs text-slate-400">
-                    {isRunning ? "Ejecutando" : "Listo para jugar"}
-                  </p>
+                  <div className="flex items-center gap-3">
+                    {mod.logoImageUrl ? (
+                      <img
+                        src={mod.logoImageUrl}
+                        alt={`${mod.name} logo`}
+                        className="h-10 w-10 rounded-md object-cover"
+                      />
+                    ) : (
+                      <div className="h-10 w-10 rounded-md bg-slate-700 shrink-0" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{mod.name}</p>
+                    </div>
+                  </div>
                 </button>
               );
             })}
@@ -774,21 +784,20 @@ function LibraryRoute({
       <div className="min-w-0 flex-1 overflow-y-auto">
         {!selected ? (
           <div className="flex h-full items-center justify-center text-slate-400">
-            Instala un mod desde Explorar mods para verlo en biblioteca.
           </div>
         ) : (
           <div className="pb-8">
             <ModHeroSection mod={selected} />
             <section className="-mt-7 px-6">
               <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 shadow-2xl">
-                <h3 className="text-sm font-semibold text-slate-200">Acciones</h3>
+                <br></br>
                 <div className="mt-3 flex gap-3">
                   <button
                     type="button"
                     onClick={() => void onPlay(selected.slug)}
                     className={`rounded-lg px-5 py-2.5 text-sm font-semibold transition ${selectedIsRunning
-                        ? "cursor-not-allowed border border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
-                        : "bg-gradient-to-r from-yellow-500 to-orange-500 text-slate-950 hover:brightness-110"
+                      ? "cursor-not-allowed border border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
+                      : "bg-gradient-to-r from-yellow-500 to-orange-500 text-slate-950 hover:brightness-110"
                       }`}
                     disabled={selectedIsRunning}
                   >
@@ -834,27 +843,39 @@ function SettingsRoute() {
 
 function ModHeroSection({ mod }: { mod: SupportedMod }) {
   return (
-    <section className="relative h-72 border-b border-slate-800">
+    <section className="relative h-120 border-b border-slate-800 bg-slate-950 overflow-hidden">
       {mod.heroImageUrl ? (
-        <img
-          src={mod.heroImageUrl}
-          alt={`${mod.name} portada`}
-          className="absolute inset-0 h-full w-full object-cover"
-        />
+        <>
+          <img
+            src={mod.heroImageUrl}
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover blur-xl opacity-25 scale-110 pointer-events-none"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent z-0" />
+          <div className="absolute inset-0 flex items-center justify-center z-10 py-2">
+            <img
+              src={mod.heroImageUrl}
+              alt={`${mod.name} portada`}
+              className="h-full max-w-full object-contain rounded-lg shadow-2xl"
+            />
+          </div>
+        </>
       ) : (
         <div className="absolute inset-0 bg-slate-900" />
       )}
-      <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-900/50 to-transparent" />
-      <div className="absolute inset-x-0 bottom-0 p-6">
+
+      <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent z-20 pointer-events-none" />
+
+      <div className="absolute inset-x-0 bottom-0 p-6 z-30">
         <div className="flex items-end gap-4">
           {mod.logoImageUrl && (
             <img
               src={mod.logoImageUrl}
               alt={`${mod.name} logo`}
-              className="h-20 w-20 rounded-xl border border-slate-700 bg-slate-900 object-cover"
+              className="h-20 w-20 rounded-xl border border-slate-700 bg-slate-900 object-cover shadow-lg"
             />
           )}
-          <div>
+          <div className="drop-shadow-lg">
             <span
               className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${statusBadgeClasses(mod.status)}`}
             >
@@ -929,28 +950,122 @@ function CreditsSection({ mod }: { mod: SupportedMod }) {
 }
 
 function ScreenshotsSection({ mod }: { mod: SupportedMod }) {
+  const [activeIdx, setActiveIdx] = useState<number | null>(null);
+
+  const handlePrev = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (activeIdx !== null) {
+      setActiveIdx((activeIdx - 1 + mod.screenshotUrls.length) % mod.screenshotUrls.length);
+    }
+  };
+
+  const handleNext = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (activeIdx !== null) {
+      setActiveIdx((activeIdx + 1) % mod.screenshotUrls.length);
+    }
+  };
+
+  useEffect(() => {
+    if (activeIdx === null) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setActiveIdx(null);
+      } else if (e.key === "ArrowLeft") {
+        setActiveIdx((prev) => (prev !== null ? (prev - 1 + mod.screenshotUrls.length) % mod.screenshotUrls.length : null));
+      } else if (e.key === "ArrowRight") {
+        setActiveIdx((prev) => (prev !== null ? (prev + 1) % mod.screenshotUrls.length : null));
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activeIdx, mod.screenshotUrls.length]);
+
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
-      <h3 className="text-sm font-semibold text-slate-200">Capturas</h3>
+      <h3 className="text-sm font-semibold text-slate-200">{strings.screenshots}</h3>
       {mod.screenshotUrls.length > 0 ? (
-        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {mod.screenshotUrls.map((url) => (
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {mod.screenshotUrls.map((url, idx) => (
             <div
               key={url}
-              className="overflow-hidden rounded-lg border border-slate-800 bg-slate-950"
+              onClick={() => setActiveIdx(idx)}
+              className="group relative cursor-pointer overflow-hidden rounded-lg border border-slate-800 bg-slate-950 aspect-video shadow-md hover:shadow-xl transition-all duration-300 hover:border-yellow-500/50"
             >
               <img
                 src={url}
                 alt={`Captura de ${mod.name}`}
-                className="h-40 w-full object-cover"
+                className="h-full w-full object-cover transition-all duration-300 group-hover:scale-105"
               />
+              <div className="absolute inset-0 bg-slate-950/0 group-hover:bg-slate-950/40 transition-all duration-300 flex items-center justify-center">
+                <span className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-slate-900/90 backdrop-blur-sm border border-slate-700/50 text-white text-xs font-semibold px-3 py-1.5 rounded-full shadow-lg">
+                  Ver
+                </span>
+              </div>
             </div>
           ))}
         </div>
       ) : (
         <p className="mt-3 text-sm text-slate-500">
-          Este mod no tiene capturas.
+          {strings.noScreenshots}
         </p>
+      )}
+
+      {activeIdx !== null && (
+        <div
+          onClick={() => setActiveIdx(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur-sm p-4 md:p-8 select-none"
+        >
+          <button
+            type="button"
+            onClick={() => setActiveIdx(null)}
+            className="absolute top-4 right-4 text-slate-400 hover:text-white p-2 transition rounded-full hover:bg-slate-800/50 z-50"
+            title={strings.close}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+
+          {mod.screenshotUrls.length > 1 && (
+            <button
+              type="button"
+              onClick={handlePrev}
+              className="absolute left-4 md:left-8 top-1/2 -translate-y-1/2 text-slate-300 hover:text-white bg-slate-900/60 hover:bg-slate-850 p-3 md:p-4 rounded-full transition shadow-xl border border-slate-850 hover:scale-105 z-50 focus:outline-none"
+              title={strings.previous}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+              </svg>
+            </button>
+          )}
+
+          <div className="relative max-h-[85vh] max-w-[85vw] flex items-center justify-center">
+            <img
+              src={mod.screenshotUrls[activeIdx]}
+              alt={`Ampliado: ${mod.name}`}
+              onClick={(e) => e.stopPropagation()}
+              className="max-h-[85vh] max-w-[85vw] object-contain rounded-lg border border-slate-800 shadow-2xl select-text"
+            />
+          </div>
+
+          {mod.screenshotUrls.length > 1 && (
+            <button
+              type="button"
+              onClick={handleNext}
+              className="absolute right-4 md:right-8 top-1/2 -translate-y-1/2 text-slate-300 hover:text-white bg-slate-900/60 hover:bg-slate-850 p-3 md:p-4 rounded-full transition shadow-xl border border-slate-850 hover:scale-105 z-50 focus:outline-none"
+              title={strings.next}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-6 h-6">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+              </svg>
+            </button>
+          )}
+
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-slate-900/80 px-4 py-1.5 rounded-full text-xs text-slate-300 border border-slate-800 font-medium">
+            {activeIdx + 1} / {mod.screenshotUrls.length}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -986,13 +1101,14 @@ function GlobalProgressFooter({
   statusMessage: string;
   onCancel: (slug: string) => void;
 }) {
+  const [showStatus, setShowStatus] = useState(false);
+
   return (
     <footer className="border-t border-slate-800 bg-slate-900 px-4 py-3">
-      <div className="grid gap-2 md:grid-cols-[1fr_320px]">
+      <div className="grid gap-2 md:grid-cols-[1fr_auto] items-center">
         <div className="min-h-[58px] space-y-2">
           {tasks.length === 0 ? (
             <p className="text-xs text-slate-400">
-              Gestor de descargas: sin tareas activas.
             </p>
           ) : (
             tasks.slice(0, 3).map((task) => {
@@ -1030,6 +1146,7 @@ function GlobalProgressFooter({
                       </span>
                       {showCancel && (
                         <button
+                          type="button"
                           onClick={() => onCancel(task.slug)}
                           className="text-[11px] text-rose-400 hover:text-rose-300 transition underline focus:outline-none ml-1.5"
                           title={strings.cancel}
@@ -1053,8 +1170,32 @@ function GlobalProgressFooter({
             })
           )}
         </div>
-        <div className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-300">
-          {statusMessage || "Sin notificaciones recientes."}
+        <div className="flex flex-col items-end gap-1.5 justify-center self-end">
+          {showStatus ? (
+            <div className="flex flex-col gap-1 w-full md:w-[320px]">
+              <div className="flex items-center justify-between text-[10px] text-slate-400 font-semibold uppercase tracking-wider px-0.5">
+                <span>{strings.notifications}</span>
+                <button
+                  type="button"
+                  onClick={() => setShowStatus(false)}
+                  className="hover:text-white transition underline normal-case font-normal text-slate-300 hover:no-underline"
+                >
+                  {strings.hide}
+                </button>
+              </div>
+              <div className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-300 animate-fade-in shadow-xl">
+                {statusMessage || "Sin notificaciones recientes."}
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowStatus(true)}
+              className="rounded-md border border-slate-800 bg-slate-950 hover:bg-slate-800/50 hover:border-slate-700 px-3 py-2 text-xs text-slate-300 transition flex items-center gap-1.5 focus:outline-none shrink-0 shadow-md font-medium"
+            >
+              <span>{strings.showNotifications}</span>
+            </button>
+          )}
         </div>
       </div>
     </footer>
@@ -1067,8 +1208,8 @@ function topNavigationLinkClassName({
   isActive: boolean;
 }) {
   return `rounded-md border px-3 py-1.5 text-sm transition ${isActive
-      ? "border-yellow-500/50 bg-slate-800 text-yellow-300"
-      : "border-slate-800 bg-slate-950 text-slate-200 hover:border-slate-700 hover:bg-slate-800"
+    ? "border-yellow-500/50 bg-slate-800 text-yellow-300"
+    : "border-slate-800 bg-slate-950 text-slate-200 hover:border-slate-700 hover:bg-slate-800"
     }`;
 }
 

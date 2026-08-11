@@ -1,6 +1,12 @@
 use reqwest::blocking::Client;
-use std::{path::Path, process::Command, time::Duration, sync::{Arc, Mutex}, collections::HashSet};
-use tauri::{AppHandle, State, Manager};
+use std::{
+    collections::HashSet,
+    path::Path,
+    process::Command,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+use tauri::{AppHandle, Manager, State};
 
 use crate::extractor::{detect_archive_format, ArchiveFormat};
 use crate::process::{
@@ -17,8 +23,8 @@ use crate::state::{
 };
 use crate::utils::{
     cleanup_failed_installation_target, compute_sha256_chunked, copy_file_secure,
-    create_dir_all_safe, debug_log, ensure_file_exists, now_epoch_millis,
-    path_exists, sanitize_slug_for_filename, to_absolute_path,
+    create_dir_all_safe, debug_log, ensure_file_exists, now_epoch_millis, path_exists,
+    sanitize_slug_for_filename, to_absolute_path,
 };
 
 #[tauri::command]
@@ -81,7 +87,7 @@ pub async fn validate_vanilla_zip(
     let app_handle = app.clone();
     tauri::async_runtime::spawn_blocking(move || validate_vanilla_zip_impl(&app_handle, &path))
         .await
-        .map_err(|err| format!("Error en tarea de validación: {err}"))?
+        .map_err(|err| format!("Error de validación: {err}"))?
 }
 
 fn validate_vanilla_zip_impl(
@@ -90,7 +96,7 @@ fn validate_vanilla_zip_impl(
 ) -> Result<BaseZipValidation, String> {
     let trimmed = raw_path.trim();
     if trimmed.is_empty() {
-        return Err("Ruta del archivo base vacía.".to_owned());
+        return Err("Ruta del archivo vacío.".to_owned());
     }
 
     let absolute = to_absolute_path(Path::new(trimmed))?;
@@ -105,7 +111,7 @@ fn validate_vanilla_zip_impl(
                 None
             } else {
                 Some(
-                    "Verificación fallida: el hash SHA-256 no coincide con el juego oficial."
+                    "Error en verificación: el hash SHA-256 no coincide con el juego oficial."
                         .to_owned(),
                 )
             };
@@ -140,7 +146,7 @@ pub async fn finalize_oobe_setup(
         finalize_oobe_setup_impl(&app_handle, &original_zip_path, global_install_dir)
     })
     .await
-    .map_err(|err| format!("Debug: error en tarea OOBE: {err}"))?
+    .map_err(|err| format!("error en tarea OOBE: {err}"))?
 }
 
 fn finalize_oobe_setup_impl(
@@ -204,7 +210,7 @@ pub fn cancel_installation(app: AppHandle, slug: String) -> Result<(), String> {
         &app,
         &sanitized_slug,
         0,
-        "Cancelling installation...",
+        "Cancelando...",
         "running",
         None,
         None,
@@ -227,7 +233,7 @@ pub fn execute_installation_recipe(
         &app,
         &sanitized_slug,
         0,
-        "Queued...",
+        "En cola...",
         "queued",
         None,
         None,
@@ -235,7 +241,7 @@ pub fn execute_installation_recipe(
         None,
         None,
     );
-    emit_installation_event(&app, &sanitized_slug, "started", "Installation started.");
+    emit_installation_event(&app, &sanitized_slug, "started", "Instalación iniciada.");
 
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -275,7 +281,7 @@ pub fn execute_installation_recipe(
                     &app_handle,
                     &slug_for_worker,
                     100,
-                    "Installation successful.",
+                    "Instalación exitosa.",
                     "success",
                     None,
                     None,
@@ -287,22 +293,24 @@ pub fn execute_installation_recipe(
                     &app_handle,
                     &slug_for_worker,
                     "success",
-                    "Installation completed successfully.",
+                    "Instalación exitosa.",
                 );
             }
             Ok(Err(err)) => {
-                let was_cancelled = if let Ok(cancelled) =
-                    app_handle.state::<LauncherRuntimeState>().cancelled_installations.lock()
+                let was_cancelled = if let Ok(cancelled) = app_handle
+                    .state::<LauncherRuntimeState>()
+                    .cancelled_installations
+                    .lock()
                 {
                     cancelled.contains(&slug_for_worker)
                 } else {
                     false
                 };
 
-                let (status_msg, state_msg) = if was_cancelled || err == "Installation cancelled by user." {
-                    ("Installation cancelled.", "cancelled")
+                let (status_msg, state_msg) = if was_cancelled || err == "Instalación cancelada." {
+                    ("Instalación cancelada.", "cancelled")
                 } else {
-                    ("Installation error.", "failed")
+                    ("Error al instalar.", "failed")
                 };
 
                 emit_installation_progress_event(
@@ -321,7 +329,7 @@ pub fn execute_installation_recipe(
                     &app_handle,
                     &slug_for_worker,
                     "failed",
-                    &format!("Installation failed: {err}"),
+                    &format!("Error: {err}"),
                 );
             }
             Err(join_err) => {
@@ -356,10 +364,10 @@ pub async fn uninstall_mod(app: AppHandle, slug: String) -> Result<(), String> {
         uninstall_mod_impl(&app_handle, &slug_for_worker)
     })
     .await
-    .map_err(|err| format!("Error en tarea de desinstalación: {err}"))?;
+    .map_err(|err| format!("Error al desinstalar: {err}"))?;
 
     if result.is_ok() {
-        emit_installation_event(&app, &sanitized_slug, "uninstalled", "Uninstall completed.");
+        emit_installation_event(&app, &sanitized_slug, "uninstalled", "Desinstalado.");
     }
 
     result
@@ -505,13 +513,13 @@ fn fetch_remote_mods(client: &Client) -> Result<Vec<ClubModEnvelope>, String> {
     let response = client
         .get(crate::state::MOD_API_URL)
         .send()
-        .map_err(|err| format!("No se pudo consultar API de Spanish Club: {err}"))?
+        .map_err(|err| format!("No se pudo consultar la API de Spanish Club: {err}"))?
         .error_for_status()
         .map_err(|err| format!("API de Spanish Club devolvió error HTTP: {err}"))?;
 
     let payload: ClubModsResponse = response
         .json()
-        .map_err(|err| format!("No se pudo leer respuesta de API de Spanish Club: {err}"))?;
+        .map_err(|err| format!("No se pudo leer respuesta API de Spanish Club: {err}"))?;
     Ok(payload.data)
 }
 
@@ -526,7 +534,8 @@ fn build_supported_mods(remote_mods: &[ClubModEnvelope]) -> Vec<SupportedMod> {
             }
 
             let lower_url = download_url.to_lowercase();
-            let is_gdrive = lower_url.contains("drive.google.com") || lower_url.contains("docs.google.com");
+            let is_gdrive =
+                lower_url.contains("drive.google.com") || lower_url.contains("docs.google.com");
             let is_mediafire = lower_url.contains("mediafire.com");
             let downloadable = is_gdrive || is_mediafire;
 
@@ -606,14 +615,14 @@ where
     };
 
     if is_cancelled() {
-        return Err("Installation cancelled by user.".to_owned());
+        return Err("Instalación cancelada.".to_owned());
     }
 
     let state = load_state(app)?;
     let global_install_root = state
         .global_install_dir
         .as_ref()
-        .ok_or_else(|| "El directorio de instalación no está configurado.".to_owned())?;
+        .ok_or_else(|| "La carpeta de instalación no está configurada.".to_owned())?;
     let vanilla_zip_path = state
         .cached_ddlc_zip_path
         .as_ref()
@@ -623,14 +632,12 @@ where
     let vanilla_zip = to_absolute_path(Path::new(vanilla_zip_path))?;
     ensure_file_exists(&vanilla_zip, "ZIP base original")?;
 
-    report_progress(5, "Verifying base game integrity...");
+    report_progress(5, "Verificando...");
     let base_hash = compute_sha256_chunked(&vanilla_zip)?;
     if detect_archive_format(&vanilla_zip)? == ArchiveFormat::Zip
         && !base_hash.eq_ignore_ascii_case(EXPECTED_DDLC_SHA256)
     {
-        return Err(format!(
-            "The base DDLC ZIP does not match the expected hash. Calculated hash: {base_hash}"
-        ));
+        return Err(format!("El archivo de DDLC no coincide. Hash: {base_hash}"));
     }
     debug_log(format!(
         "Install start slug=`{slug}` install_root=`{}` vanilla_archive=`{}`",
@@ -639,10 +646,10 @@ where
     ));
 
     if is_cancelled() {
-        return Err("Installation cancelled by user.".to_owned());
+        return Err("Instalación cancelada.".to_owned());
     }
 
-    report_progress(30, "Connecting to server...");
+    report_progress(30, "Conectando...");
     let client = build_http_client()?;
     let remote_mods = fetch_remote_mods(&client)?;
     let selected_mod = remote_mods
@@ -656,7 +663,7 @@ where
     let is_mediafire = lower_url.contains("mediafire.com");
     let downloadable = is_gdrive || is_mediafire;
 
-    report_progress(45, "Preparing mod archive...");
+    report_progress(45, "Descargando el mod...");
     let mod_zip_path = if downloadable && user_provided_zip_path.is_none() {
         if mod_download_url.is_empty() {
             return Err(format!(
@@ -715,7 +722,10 @@ where
         downloadable
     ));
 
-    report_progress(48, "Preparing installation directory...");
+    report_progress(
+        48,
+        "Haciendo los preparativos para una tarta de chocolate...",
+    );
     let target_dir = install_root.join(slug);
     if path_exists(&target_dir) {
         crate::utils::remove_dir_all_safe(&target_dir)?;
@@ -751,11 +761,11 @@ where
         installed_at_epoch_ms: now_epoch_millis(),
     };
 
-    report_progress(98, "Registering installation...");
+    report_progress(98, "Ya casi...");
     let mut current_state = load_state(app)?;
     crate::state::upsert_installed_mod(&mut current_state.installed_mods, installed_mod);
     save_state(app, &current_state)?;
-    report_progress(100, "Installation finished.");
+    report_progress(100, "Instalacion finalizada.");
 
     Ok(InstallResult {
         slug: slug.to_owned(),
