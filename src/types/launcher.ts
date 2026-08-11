@@ -54,8 +54,12 @@ export interface InstallationProgressEvent {
   slug: string;
   progress: number;
   status: string;
-  state: "queued" | "running" | "success" | "failed" | string;
+  state: "queued" | "running" | "success" | "failed" | "cancelled" | string;
   error?: string | null;
+  speed?: number | null;
+  eta?: number | null;
+  downloaded?: number | null;
+  total?: number | null;
 }
 
 export interface ModProcessStatusEvent {

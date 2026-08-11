@@ -1,5 +1,5 @@
 use reqwest::blocking::Client;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use crate::extractor::ArchiveFormat;
@@ -203,6 +203,8 @@ pub fn download_to_file(
     url: &str,
     cache_dir: &Path,
     slug: &str,
+    is_cancelled: &dyn Fn() -> bool,
+    mut report_download_progress: impl FnMut(u64, u64, u64, u64),
 ) -> Result<PathBuf, String> {
     if !path_exists(cache_dir) {
         create_dir_all_safe(cache_dir)?;
@@ -224,18 +226,55 @@ pub fn download_to_file(
             .error_for_status()
             .map_err(|err| format!("HTTP error downloading from `{resolved_url}`: {err}"))?;
 
+        let total_size = response.content_length().unwrap_or(0);
+
         let mut file = std::fs::File::create(fs_path(&temp_path)).map_err(|err| {
             format!(
                 "Failed to create temporary download file `{}`: {err}",
                 temp_path.display()
             )
         })?;
-        std::io::copy(&mut response, &mut file).map_err(|err| {
-            format!(
-                "Failed to write downloaded file `{}`: {err}",
-                temp_path.display()
-            )
-        })?;
+
+        let mut buffer = [0u8; 65536];
+        let mut downloaded: u64 = 0;
+        let start_time = std::time::Instant::now();
+        let mut last_emit = std::time::Instant::now();
+
+        loop {
+            if is_cancelled() {
+                return Err("Installation cancelled by user.".to_owned());
+            }
+
+            let len = match response.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(err) => return Err(format!("Error reading download stream: {err}")),
+            };
+
+            file.write_all(&buffer[..len])
+                .map_err(|err| format!("Error writing download file: {err}"))?;
+
+            downloaded += len as u64;
+
+            let now = std::time::Instant::now();
+            if now.duration_since(last_emit).as_millis() >= 200 || downloaded == total_size {
+                last_emit = now;
+                let elapsed = start_time.elapsed().as_secs_f64();
+                let speed = if elapsed > 0.0 {
+                    (downloaded as f64 / elapsed).round() as u64
+                } else {
+                    0
+                };
+                let eta = if speed > 0 && total_size > downloaded {
+                    (total_size - downloaded) / speed
+                } else {
+                    0
+                };
+
+                report_download_progress(downloaded, total_size, speed, eta);
+            }
+        }
+
         Ok(())
     })();
 

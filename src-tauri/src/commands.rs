@@ -1,13 +1,13 @@
 use reqwest::blocking::Client;
-use std::{path::Path, process::Command, time::Duration};
-use tauri::{AppHandle, State};
+use std::{path::Path, process::Command, time::Duration, sync::{Arc, Mutex}, collections::HashSet};
+use tauri::{AppHandle, State, Manager};
 
 use crate::extractor::{detect_archive_format, ArchiveFormat};
 use crate::process::{
     is_process_in_directory, normalize_process_path, query_running_executable_paths,
     sanitize_install_slug, spawn_mod_watcher_thread,
 };
-use crate::recipes::{resolve_recipe_path, run_recipe_steps, RecipeManifest};
+
 use crate::state::{
     emit_installation_event, emit_installation_progress_event, emit_mod_process_status_event,
     extract_credit_names, first_image_url, image_urls, load_state, save_state, state_to_view,
@@ -17,7 +17,7 @@ use crate::state::{
 };
 use crate::utils::{
     cleanup_failed_installation_target, compute_sha256_chunked, copy_file_secure,
-    create_dir_all_safe, debug_log, debug_preserve_note, ensure_file_exists, now_epoch_millis,
+    create_dir_all_safe, debug_log, ensure_file_exists, now_epoch_millis,
     path_exists, sanitize_slug_for_filename, to_absolute_path,
 };
 
@@ -186,15 +186,33 @@ pub async fn fetch_supported_mods(app: AppHandle) -> Result<Vec<SupportedMod>, S
         .map_err(|err| format!("Error en tarea de consulta remota: {err}"))?
 }
 
-fn fetch_supported_mods_impl(app: &AppHandle) -> Result<Vec<SupportedMod>, String> {
-    let state = load_state(app)?;
-    let manifest_url = crate::state::resolve_manifest_url(state.manifest_url.as_deref());
-
+fn fetch_supported_mods_impl(_app: &AppHandle) -> Result<Vec<SupportedMod>, String> {
     let client = build_http_client()?;
-    let manifest = fetch_recipe_manifest(&client, &manifest_url)?;
     let remote_mods = fetch_remote_mods(&client)?;
 
-    Ok(build_supported_mods(&manifest, &remote_mods))
+    Ok(build_supported_mods(&remote_mods))
+}
+
+#[tauri::command]
+pub fn cancel_installation(app: AppHandle, slug: String) -> Result<(), String> {
+    let sanitized_slug = sanitize_install_slug(slug)?;
+    let runtime_state = app.state::<LauncherRuntimeState>();
+    if let Ok(mut cancelled) = runtime_state.cancelled_installations.lock() {
+        cancelled.insert(sanitized_slug.clone());
+    }
+    emit_installation_progress_event(
+        &app,
+        &sanitized_slug,
+        0,
+        "Cancelling installation...",
+        "running",
+        None,
+        None,
+        None,
+        None,
+        None,
+    );
+    Ok(())
 }
 
 #[tauri::command]
@@ -205,7 +223,18 @@ pub fn execute_installation_recipe(
 ) -> Result<(), String> {
     let sanitized_slug = sanitize_install_slug(slug)?;
 
-    emit_installation_progress_event(&app, &sanitized_slug, 0, "Queued...", "queued", None);
+    emit_installation_progress_event(
+        &app,
+        &sanitized_slug,
+        0,
+        "Queued...",
+        "queued",
+        None,
+        None,
+        None,
+        None,
+        None,
+    );
     emit_installation_event(&app, &sanitized_slug, "started", "Installation started.");
 
     let app_handle = app.clone();
@@ -230,6 +259,10 @@ pub fn execute_installation_recipe(
                         status,
                         "running",
                         None,
+                        None,
+                        None,
+                        None,
+                        None,
                     );
                 },
             )
@@ -245,6 +278,10 @@ pub fn execute_installation_recipe(
                     "Installation successful.",
                     "success",
                     None,
+                    None,
+                    None,
+                    None,
+                    None,
                 );
                 emit_installation_event(
                     &app_handle,
@@ -254,13 +291,31 @@ pub fn execute_installation_recipe(
                 );
             }
             Ok(Err(err)) => {
+                let was_cancelled = if let Ok(cancelled) =
+                    app_handle.state::<LauncherRuntimeState>().cancelled_installations.lock()
+                {
+                    cancelled.contains(&slug_for_worker)
+                } else {
+                    false
+                };
+
+                let (status_msg, state_msg) = if was_cancelled || err == "Installation cancelled by user." {
+                    ("Installation cancelled.", "cancelled")
+                } else {
+                    ("Installation error.", "failed")
+                };
+
                 emit_installation_progress_event(
                     &app_handle,
                     &slug_for_worker,
                     0,
-                    "Installation error.",
-                    "failed",
+                    status_msg,
+                    state_msg,
                     Some(err.clone()),
+                    None,
+                    None,
+                    None,
+                    None,
                 );
                 emit_installation_event(
                     &app_handle,
@@ -278,6 +333,10 @@ pub fn execute_installation_recipe(
                     "Panic failure.",
                     "failed",
                     Some(err_msg.clone()),
+                    None,
+                    None,
+                    None,
+                    None,
                 );
                 emit_installation_event(&app_handle, &slug_for_worker, "failed", &err_msg);
             }
@@ -456,25 +515,7 @@ fn fetch_remote_mods(client: &Client) -> Result<Vec<ClubModEnvelope>, String> {
     Ok(payload.data)
 }
 
-fn fetch_recipe_manifest(client: &Client, manifest_url: &str) -> Result<RecipeManifest, String> {
-    let response = client
-        .get(manifest_url)
-        .send()
-        .map_err(|err| {
-            format!("No se pudieron descargar las instrucciones (`{manifest_url}`): {err}")
-        })?
-        .error_for_status()
-        .map_err(|err| format!("Error HTTP (`{manifest_url}`): {err}"))?;
-
-    response
-        .json::<RecipeManifest>()
-        .map_err(|err| format!("No se pudieron leer las instrucciones (`{manifest_url}`): {err}"))
-}
-
-fn build_supported_mods(
-    manifest: &RecipeManifest,
-    remote_mods: &[ClubModEnvelope],
-) -> Vec<SupportedMod> {
+fn build_supported_mods(remote_mods: &[ClubModEnvelope]) -> Vec<SupportedMod> {
     let mut mods = remote_mods
         .iter()
         .filter_map(|entry| {
@@ -484,13 +525,10 @@ fn build_supported_mods(
                 return None;
             }
 
-            let recipe = manifest.recipes.get(slug)?;
-            if !recipe.is_supported {
-                return None;
-            }
-            if recipe.downloadable && download_url.is_empty() {
-                return None;
-            }
+            let lower_url = download_url.to_lowercase();
+            let is_gdrive = lower_url.contains("drive.google.com") || lower_url.contains("docs.google.com");
+            let is_mediafire = lower_url.contains("mediafire.com");
+            let downloadable = is_gdrive || is_mediafire;
 
             let creators = extract_credit_names(&entry.credits.creators);
             let translators = extract_credit_names(&entry.credits.translators);
@@ -504,10 +542,10 @@ fn build_supported_mods(
                 } else {
                     Some(download_url.to_owned())
                 },
-                downloadable: recipe.downloadable,
+                downloadable,
                 status: entry.resource.status.clone(),
                 current_version: entry.info.as_ref().and_then(|info| info.updated_at.clone()),
-                executable: recipe.executable.clone(),
+                executable: "DDLC.exe".to_owned(),
                 description_html: entry.resource.description.clone(),
                 hero_image_url: first_image_url(&entry.resource.images, "main"),
                 logo_image_url: first_image_url(&entry.resource.images, "logo"),
@@ -531,6 +569,19 @@ fn build_supported_mods(
     mods
 }
 
+struct CancelGuard {
+    state: Arc<Mutex<HashSet<String>>>,
+    slug: String,
+}
+
+impl Drop for CancelGuard {
+    fn drop(&mut self) {
+        if let Ok(mut cancelled) = self.state.lock() {
+            cancelled.remove(&self.slug);
+        }
+    }
+}
+
 fn execute_installation_recipe_impl<F>(
     app: &AppHandle,
     slug: &str,
@@ -540,6 +591,24 @@ fn execute_installation_recipe_impl<F>(
 where
     F: FnMut(u8, &str),
 {
+    let runtime_state = app.state::<LauncherRuntimeState>();
+    let is_cancelled = || {
+        if let Ok(cancelled) = runtime_state.cancelled_installations.lock() {
+            cancelled.contains(slug)
+        } else {
+            false
+        }
+    };
+
+    let _guard = CancelGuard {
+        state: runtime_state.cancelled_installations.clone(),
+        slug: slug.to_owned(),
+    };
+
+    if is_cancelled() {
+        return Err("Installation cancelled by user.".to_owned());
+    }
+
     let state = load_state(app)?;
     let global_install_root = state
         .global_install_dir
@@ -549,7 +618,6 @@ where
         .cached_ddlc_zip_path
         .as_ref()
         .ok_or_else(|| "El archivo original de DDLC no está configurado.".to_owned())?;
-    let manifest_url = crate::state::resolve_manifest_url(state.manifest_url.as_deref());
 
     let install_root = to_absolute_path(Path::new(global_install_root))?;
     let vanilla_zip = to_absolute_path(Path::new(vanilla_zip_path))?;
@@ -570,28 +638,26 @@ where
         vanilla_zip.display()
     ));
 
+    if is_cancelled() {
+        return Err("Installation cancelled by user.".to_owned());
+    }
+
     report_progress(30, "Connecting to server...");
     let client = build_http_client()?;
-    let manifest = fetch_recipe_manifest(&client, &manifest_url)?;
     let remote_mods = fetch_remote_mods(&client)?;
     let selected_mod = remote_mods
         .into_iter()
         .find(|item| item.resource.slug == slug)
         .ok_or_else(|| format!("Mod `{slug}` not found in remote API."))?;
 
-    let recipe = manifest
-        .recipes
-        .get(slug)
-        .ok_or_else(|| format!("No instructions found for `{slug}` on remote server."))?;
-    if !recipe.is_supported {
-        return Err(format!(
-            "Mod `{slug}` is marked as unsupported on the server."
-        ));
-    }
+    let mod_download_url = selected_mod.resource.download_pc.trim().to_owned();
+    let lower_url = mod_download_url.to_lowercase();
+    let is_gdrive = lower_url.contains("drive.google.com") || lower_url.contains("docs.google.com");
+    let is_mediafire = lower_url.contains("mediafire.com");
+    let downloadable = is_gdrive || is_mediafire;
 
     report_progress(45, "Preparing mod archive...");
-    let mod_zip_path = if recipe.downloadable && user_provided_zip_path.is_none() {
-        let mod_download_url = selected_mod.resource.download_pc.trim().to_owned();
+    let mod_zip_path = if downloadable && user_provided_zip_path.is_none() {
         if mod_download_url.is_empty() {
             return Err(format!(
                 "Mod `{slug}` is marked as downloadable but has no valid download URL."
@@ -604,9 +670,27 @@ where
             &mod_download_url,
             &cache_dir,
             &sanitize_slug_for_filename(slug),
-        )
-        .map_err(|err| format!("Automatic download failed: {err}\n\n{mod_download_url}"))?;
-        detect_archive_format(&cache_path)?;
+            &is_cancelled,
+            |downloaded, total, speed, eta| {
+                let progress = if total > 0 {
+                    ((downloaded as f64 / total as f64) * 45.0).round() as u8
+                } else {
+                    40
+                };
+                crate::state::emit_installation_progress_event(
+                    app,
+                    slug,
+                    progress,
+                    "Downloading mod...",
+                    "running",
+                    None,
+                    Some(speed),
+                    Some(eta),
+                    Some(downloaded),
+                    Some(total),
+                );
+            },
+        )?;
         cache_path
     } else {
         let provided = user_provided_zip_path
@@ -628,39 +712,33 @@ where
         "Install archives slug=`{slug}` base=`{}` mod_archive=`{}` downloadable={}",
         vanilla_zip.display(),
         mod_zip_path.display(),
-        recipe.downloadable
+        downloadable
     ));
 
-    report_progress(55, "Preparing installation directory...");
+    report_progress(48, "Preparing installation directory...");
     let target_dir = install_root.join(slug);
     if path_exists(&target_dir) {
         crate::utils::remove_dir_all_safe(&target_dir)?;
     }
     create_dir_all_safe(&target_dir)?;
 
-    if let Err(err) = run_recipe_steps(
-        recipe,
+    let executable_name = match crate::recipes::install_mod_files_generic(
         &target_dir,
         &vanilla_zip,
         &mod_zip_path,
+        &is_cancelled,
         |progress, status| {
             report_progress(progress, status);
         },
     ) {
-        cleanup_failed_installation_target(&target_dir);
-        return Err(format!("{err}{}", debug_preserve_note(&target_dir)));
-    }
+        Ok(exe) => exe,
+        Err(err) => {
+            cleanup_failed_installation_target(&target_dir);
+            return Err(err);
+        }
+    };
 
-    report_progress(90, "Validating final executable...");
-    let executable_path = resolve_recipe_path(&target_dir, recipe.executable.as_str())?;
-    if !path_exists(&executable_path) {
-        cleanup_failed_installation_target(&target_dir);
-        return Err(format!(
-            "Installation finished, but final executable was not found at `{}`.{}",
-            executable_path.display(),
-            debug_preserve_note(&target_dir)
-        ));
-    }
+    let executable_path = target_dir.join(&executable_name);
 
     let installed_mod = InstalledMod {
         slug: slug.to_owned(),
@@ -673,7 +751,7 @@ where
         installed_at_epoch_ms: now_epoch_millis(),
     };
 
-    report_progress(96, "Registering installation...");
+    report_progress(98, "Registering installation...");
     let mut current_state = load_state(app)?;
     crate::state::upsert_installed_mod(&mut current_state.installed_mods, installed_mod);
     save_state(app, &current_state)?;

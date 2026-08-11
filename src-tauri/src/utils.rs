@@ -139,6 +139,7 @@ pub fn ensure_file_exists(path: &Path, label: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn debug_preserve_note(target_dir: &Path) -> String {
     if cfg!(debug_assertions) {
         format!(

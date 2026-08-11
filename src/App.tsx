@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { strings } from "./strings";
 import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
@@ -143,9 +144,7 @@ function LauncherClient() {
   async function queueInstallation(mod: SupportedMod) {
     const manualArchivePath = manualArchiveBySlug[mod.slug] ?? null;
     if (!mod.downloadable && !manualArchivePath) {
-      setStatusMessage(
-        "Este mod requiere flujo manual: abre la descarga y selecciona un .zip/.rar.",
-      );
+      setStatusMessage(strings.manualRequired);
       return;
     }
 
@@ -155,7 +154,7 @@ function LauncherClient() {
         slug: mod.slug,
         userProvidedZipPath: mod.downloadable ? null : manualArchivePath,
       });
-      setStatusMessage(`Instalación en segundo plano iniciada para ${mod.name}.`);
+      setStatusMessage(`${strings.backgroundInstallStarted} ${mod.name}.`);
     } catch (error) {
       setStatusMessage(String(error));
     } finally {
@@ -163,13 +162,22 @@ function LauncherClient() {
     }
   }
 
+  async function cancelInstallation(slug: string) {
+    try {
+      await invoke("cancel_installation", { slug });
+      setStatusMessage(`${strings.cancelling} (${slug})`);
+    } catch (error) {
+      setStatusMessage(String(error));
+    }
+  }
+
   async function uninstallInstalledMod(slug: string) {
     setUninstallingSlug(slug);
-    setStatusMessage(`Desinstalando ${slug}...`);
+    setStatusMessage(`${strings.uninstalling} ${slug}...`);
     try {
       await invoke("uninstall_mod", { slug });
       await refreshLauncherState();
-      setStatusMessage(`Desinstalación completada: ${slug}`);
+      setStatusMessage(`${strings.uninstallCompleted}: ${slug}`);
     } catch (error) {
       setStatusMessage(String(error));
     } finally {
@@ -304,11 +312,11 @@ function LauncherClient() {
             void refreshLauncherState();
           }
 
-          if (payload.state === "success" || payload.state === "failed") {
+          if (payload.state === "success" || payload.state === "failed" || payload.state === "cancelled") {
             const slug = payload.slug;
             window.setTimeout(() => {
               setTasksBySlug((current) => {
-                if (!current[slug] || current[slug].state === "running") {
+                if (!current[slug] || current[slug].state === "running" || current[slug].state === "queued") {
                   return current;
                 }
                 const next = { ...current };
@@ -471,7 +479,7 @@ function LauncherClient() {
         </Routes>
       </main>
 
-      <GlobalProgressFooter tasks={progressTasks} statusMessage={statusMessage} />
+      <GlobalProgressFooter tasks={progressTasks} statusMessage={statusMessage} onCancel={cancelInstallation} />
     </div>
   );
 }
@@ -605,17 +613,18 @@ function ExploreRoute({
                           }`}
                         disabled={selectedIsRunning}
                       >
-                        {selectedIsRunning ? "Ejecutando" : "Jugar"}
+                        {selectedIsRunning ? strings.playing : strings.play}
                       </button>
                       <button
                         type="button"
                         onClick={() => void onUninstall(selectedMod.slug)}
                         className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm font-medium text-slate-100 transition hover:border-slate-600 disabled:cursor-not-allowed disabled:opacity-60"
-                        disabled={uninstallingSlug === selectedMod.slug}
+                        disabled={uninstallingSlug === selectedMod.slug || selectedIsRunning}
+                        title={selectedIsRunning ? strings.uninstallRequiredWarn : undefined}
                       >
                         {uninstallingSlug === selectedMod.slug
-                          ? "Desinstalando..."
-                          : "Desinstalar"}
+                          ? strings.uninstalling
+                          : strings.uninstall}
                       </button>
                     </>
                   ) : (
@@ -632,54 +641,59 @@ function ExploreRoute({
                     >
                       {installRequestSlug === selectedMod.slug ||
                         runningInstallationSlugs.has(selectedMod.slug)
-                        ? "Procesando..."
-                        : "Instalar"}
+                        ? strings.processing
+                        : strings.install}
                     </button>
                   )}
 
                   {!selectedInstalled && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => void onOpenManualDownload(selectedMod)}
-                        className={
-                          selectedMod.downloadable
-                            ? "rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm font-medium text-slate-100 transition hover:border-slate-600"
-                            : "rounded-lg border border-amber-500/50 bg-amber-500/10 px-4 py-2.5 text-sm font-medium text-amber-200 transition hover:border-amber-400"
-                        }
-                      >
-                        Descarga manual
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void onSelectManualArchive(selectedMod.slug)}
-                        className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm font-medium text-slate-100 transition hover:border-slate-600"
-                      >
-                        {manualArchiveBySlug[selectedMod.slug] ? "Cambiar archivo" : "Seleccionar archivo"}
-                      </button>
-                    </>
+                    <details className="mt-4 w-full text-slate-400 group">
+                      <summary className="text-xs font-semibold cursor-pointer select-none text-slate-300 hover:text-white transition flex items-center gap-1.5 focus:outline-none">
+                        <span className="inline-block transform transition-transform duration-200 group-open:rotate-90">▶</span>
+                        {strings.advancedOptions}
+                      </summary>
+                      <div className="mt-3 border border-slate-800 bg-slate-950/60 rounded-lg p-3 grid gap-3">
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void onOpenManualDownload(selectedMod)}
+                            className={
+                              selectedMod.downloadable
+                                ? "rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-slate-100 transition hover:border-slate-600"
+                                : "rounded-lg border border-amber-500/50 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-200 transition hover:border-amber-400"
+                            }
+                          >
+                            {strings.manualDownload}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void onSelectManualArchive(selectedMod.slug)}
+                            className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-slate-100 transition hover:border-slate-600"
+                          >
+                            {manualArchiveBySlug[selectedMod.slug] ? strings.changeFile : strings.selectFile}
+                          </button>
+                        </div>
+                        <p className="text-xs text-slate-400">
+                          {selectedMod.downloadable ? (
+                            manualArchiveBySlug[selectedMod.slug] ? (
+                              <span className="text-emerald-400 font-medium">
+                                ✓ {strings.localSelected}: {manualArchiveBySlug[selectedMod.slug]}
+                              </span>
+                            ) : (
+                              strings.autoDownloadInfo
+                            )
+                          ) : (
+                            <span className="text-amber-300 font-medium">
+                              {manualArchiveBySlug[selectedMod.slug]
+                                ? `Archivo seleccionado: ${manualArchiveBySlug[selectedMod.slug]}`
+                                : strings.manualRequired}
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                    </details>
                   )}
                 </div>
-
-                {!selectedInstalled && (
-                  <p className="mt-3 text-xs text-slate-400">
-                    {selectedMod.downloadable ? (
-                      manualArchiveBySlug[selectedMod.slug] ? (
-                        <span className="text-emerald-400">
-                          ✓ Archivo local seleccionado: {manualArchiveBySlug[selectedMod.slug]} (se instalará sin descargar)
-                        </span>
-                      ) : (
-                        "Este mod se descargará e instalará automáticamente."
-                      )
-                    ) : (
-                      <span className="text-amber-300">
-                        {manualArchiveBySlug[selectedMod.slug]
-                          ? ` Archivo seleccionado: ${manualArchiveBySlug[selectedMod.slug]}`
-                          : "Este mod requiere descarga manual. Descarga y selecciona el archivo."}
-                      </span>
-                    )}
-                  </p>
-                )}
               </div>
             </section>
 
@@ -942,12 +956,35 @@ function ScreenshotsSection({ mod }: { mod: SupportedMod }) {
   );
 }
 
+function formatBytes(bytes?: number | null): string {
+  if (bytes === undefined || bytes === null || bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+}
+
+function formatSpeed(bytesPerSec?: number | null): string {
+  if (!bytesPerSec) return "";
+  return `${formatBytes(bytesPerSec)}/s`;
+}
+
+function formatEta(seconds?: number | null): string {
+  if (seconds === undefined || seconds === null || seconds === 0) return "";
+  if (seconds < 60) return `${seconds}s`;
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}m ${secs}s`;
+}
+
 function GlobalProgressFooter({
   tasks,
   statusMessage,
+  onCancel,
 }: {
   tasks: UiInstallationTask[];
   statusMessage: string;
+  onCancel: (slug: string) => void;
 }) {
   return (
     <footer className="border-t border-slate-800 bg-slate-900 px-4 py-3">
@@ -958,34 +995,62 @@ function GlobalProgressFooter({
               Gestor de descargas: sin tareas activas.
             </p>
           ) : (
-            tasks.slice(0, 3).map((task) => (
-              <div
-                key={task.slug}
-                className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2"
-              >
-                <div className="mb-1 flex items-center justify-between text-xs">
-                  <span className="font-medium text-slate-200">{task.slug}</span>
-                  <span
-                    className={
-                      task.state === "failed"
-                        ? "text-rose-300"
-                        : task.state === "success"
-                          ? "text-emerald-300"
-                          : "text-slate-400"
-                    }
-                  >
-                    {task.state}
-                  </span>
+            tasks.slice(0, 3).map((task) => {
+              const isDownloading = task.speed !== undefined && task.speed !== null && task.speed > 0;
+              const isRunningOrQueued = task.state === "running" || task.state === "queued";
+              const showCancel = isRunningOrQueued;
+
+              return (
+                <div
+                  key={task.slug}
+                  className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2 animate-fade-in"
+                >
+                  <div className="mb-1 flex items-center justify-between text-xs">
+                    <span className="font-medium text-slate-200">
+                      {task.slug}
+                      {isDownloading && (
+                        <span className="text-[10px] text-slate-400 ml-2 font-normal">
+                          ({formatBytes(task.downloaded)} / {formatBytes(task.total)} - {formatSpeed(task.speed)} - {formatEta(task.eta)} {strings.eta})
+                        </span>
+                      )}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={
+                          task.state === "failed"
+                            ? "text-rose-400 font-semibold"
+                            : task.state === "cancelled"
+                              ? "text-amber-400 font-semibold"
+                              : task.state === "success"
+                                ? "text-emerald-400 font-semibold"
+                                : "text-slate-400"
+                        }
+                      >
+                        {task.state === "queued" ? strings.queued : task.state === "failed" ? strings.installFailed : task.state === "cancelled" ? strings.installCancelled : task.state === "success" ? strings.installSuccess : task.state}
+                      </span>
+                      {showCancel && (
+                        <button
+                          onClick={() => onCancel(task.slug)}
+                          className="text-[11px] text-rose-400 hover:text-rose-300 transition underline focus:outline-none ml-1.5"
+                          title={strings.cancel}
+                        >
+                          {strings.cancel}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <p className="truncate text-xs text-slate-400">
+                    {task.status === "Downloading mod..." ? strings.preparingMod : task.status}
+                  </p>
+                  <div className="mt-1 h-1.5 overflow-hidden rounded bg-slate-800">
+                    <div
+                      className="h-full bg-gradient-to-r from-yellow-500 to-orange-500 transition-all duration-300"
+                      style={{ width: `${Math.max(0, Math.min(100, task.progress))}%` }}
+                    />
+                  </div>
                 </div>
-                <p className="truncate text-xs text-slate-400">{task.status}</p>
-                <div className="mt-1 h-1.5 overflow-hidden rounded bg-slate-800">
-                  <div
-                    className="h-full bg-gradient-to-r from-yellow-500 to-orange-500 transition-all"
-                    style={{ width: `${Math.max(0, Math.min(100, task.progress))}%` }}
-                  />
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
         <div className="rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-300">

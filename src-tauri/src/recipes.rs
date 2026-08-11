@@ -1,4 +1,3 @@
-use serde::{Deserialize, Serialize};
 use std::{
     fs,
     path::{Component, Path, PathBuf},
@@ -6,135 +5,182 @@ use std::{
 
 use crate::extractor::extract_archive_here;
 use crate::utils::{
-    copy_file_overwrite, create_dir_all_safe, debug_log, fs_path, path_exists, path_is_file,
-    remove_dir_all_safe, remove_file_safe,
+    copy_file_overwrite, create_dir_all_safe, debug_log, fs_path, path_exists, remove_dir_all_safe,
 };
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct RecipeStep {
-    pub action: String,
-    #[serde(default)]
-    pub source: Option<String>,
-    #[serde(default)]
-    pub destination: Option<String>,
-    #[serde(default)]
-    pub target: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct ModRecipe {
-    pub is_supported: bool,
-    pub downloadable: bool,
-    pub executable: String,
-    pub steps: Vec<RecipeStep>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct RecipeManifest {
-    pub manifest_version: String,
-    pub recipes: std::collections::HashMap<String, ModRecipe>,
-}
-
-pub fn run_recipe_steps(
-    recipe: &ModRecipe,
+pub fn install_mod_files_generic(
     target_dir: &Path,
     vanilla_zip: &Path,
     mod_zip: &Path,
+    is_cancelled: &dyn Fn() -> bool,
     mut report_progress: impl FnMut(u8, &str),
-) -> Result<(), String> {
-    let total_steps = recipe.steps.len().max(1);
-    for (index, step) in recipe.steps.iter().enumerate() {
-        let step_progress = 60 + (((index as f32) / (total_steps as f32)) * 25.0).round() as u8;
-        let status = format!(
-            "Step {}/{}: {}",
-            index + 1,
-            total_steps,
-            recipe_action_label(step.action.as_str())
-        );
-        report_progress(step_progress.min(85), &status);
+) -> Result<String, String> {
+    if is_cancelled() {
+        return Err("Installation cancelled by user.".to_owned());
+    }
 
-        match step.action.as_str() {
-            "extract_base" => {
-                let destination =
-                    resolve_recipe_path(target_dir, step.destination.as_deref().unwrap_or("./"))?;
-                extract_archive_here(vanilla_zip, &destination)?;
-            }
-            "extract_mod" => {
-                let destination =
-                    resolve_recipe_path(target_dir, step.destination.as_deref().unwrap_or("./"))?;
-                extract_archive_here(mod_zip, &destination)?;
-            }
-            "copy_overwrite" => {
-                let source_requested = resolve_recipe_path(
-                    target_dir,
-                    step.source
-                        .as_deref()
-                        .ok_or_else(|| "Paso copy_overwrite requiere `source`.".to_owned())?,
-                )?;
-                let source = resolve_copy_source_path(&source_requested)?;
-                let destination = resolve_recipe_path(
-                    target_dir,
-                    step.destination
-                        .as_deref()
-                        .ok_or_else(|| "Paso copy_overwrite requiere `destination`.".to_owned())?,
-                )?;
-                recursive_copy(&source, &destination)?;
-            }
-            "delete_file" => {
-                let target = resolve_recipe_path(
-                    target_dir,
-                    step.target
-                        .as_deref()
-                        .ok_or_else(|| "Paso delete_file requiere `target`.".to_owned())?,
-                )?;
-                if path_exists(&target) {
-                    if path_is_file(&target) {
-                        remove_file_safe(&target)?;
-                    } else {
-                        return Err(format!(
-                            "delete_file esperaba un archivo, pero encontró directorio: {}",
-                            target.display()
-                        ));
+    report_progress(50, "Extracting base game files...");
+    let temp_ddlc = target_dir.join("temp_ddlc");
+    if path_exists(&temp_ddlc) {
+        remove_dir_all_safe(&temp_ddlc)?;
+    }
+    create_dir_all_safe(&temp_ddlc)?;
+    extract_archive_here(vanilla_zip, &temp_ddlc)?;
+
+    if is_cancelled() {
+        let _ = remove_dir_all_safe(&temp_ddlc);
+        return Err("Installation cancelled by user.".to_owned());
+    }
+
+    report_progress(70, "Extracting mod files...");
+    let temp_mod = target_dir.join("temp_mod");
+    if path_exists(&temp_mod) {
+        remove_dir_all_safe(&temp_mod)?;
+    }
+    create_dir_all_safe(&temp_mod)?;
+    extract_archive_here(mod_zip, &temp_mod)?;
+
+    if is_cancelled() {
+        let _ = remove_dir_all_safe(&temp_ddlc);
+        let _ = remove_dir_all_safe(&temp_mod);
+        return Err("Installation cancelled by user.".to_owned());
+    }
+
+    report_progress(80, "Merging base game files...");
+    let base_src = resolve_copy_source_path(&temp_ddlc.join("game"))?;
+    let base_root = base_src
+        .parent()
+        .ok_or_else(|| "Failed to find parent of base source path.".to_owned())?;
+    recursive_copy(base_root, target_dir)?;
+
+    if is_cancelled() {
+        let _ = remove_dir_all_safe(&temp_ddlc);
+        let _ = remove_dir_all_safe(&temp_mod);
+        return Err("Installation cancelled by user.".to_owned());
+    }
+
+    report_progress(85, "Merging translation files...");
+    let mod_src_root = resolve_mod_extraction_root(&temp_mod)?;
+    debug_log(format!(
+        "Resolved mod source root to: {}",
+        mod_src_root.display()
+    ));
+
+    let has_game_dir =
+        path_exists(&mod_src_root.join("game")) || path_exists(&mod_src_root.join("Game"));
+    if has_game_dir {
+        recursive_copy(&mod_src_root, target_dir)?;
+    } else {
+        let target_game_dir = target_dir.join("game");
+        create_dir_all_safe(&target_game_dir)?;
+        recursive_copy(&mod_src_root, &target_game_dir)?;
+    }
+
+    report_progress(92, "Cleaning up temporary files...");
+    let _ = remove_dir_all_safe(&temp_ddlc);
+    let _ = remove_dir_all_safe(&temp_mod);
+
+    if is_cancelled() {
+        return Err("Installation cancelled by user.".to_owned());
+    }
+
+    report_progress(96, "Detecting launcher executable...");
+    let exe_name = detect_installed_executable(target_dir)?;
+    debug_log(format!("Detected launcher executable: {exe_name}"));
+
+    Ok(exe_name)
+}
+
+pub fn resolve_mod_extraction_root(extracted_dir: &Path) -> Result<PathBuf, String> {
+    let entries = std::fs::read_dir(fs_path(extracted_dir)).map_err(|err| {
+        format!(
+            "Failed to read directory `{}`: {err}",
+            extracted_dir.display()
+        )
+    })?;
+
+    let mut files = Vec::new();
+    let mut dirs = Vec::new();
+
+    for entry in entries {
+        let entry = entry.map_err(|err| format!("Failed to read entry: {err}"))?;
+        let path = entry.path();
+        if path.is_file() {
+            files.push(path);
+        } else if path.is_dir() {
+            dirs.push(path);
+        }
+    }
+
+    if files.is_empty() && dirs.len() == 1 {
+        let dir_name = dirs[0]
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        if dir_name != "game"
+            && dir_name != "lib"
+            && dir_name != "renpy"
+            && dir_name != "characters"
+        {
+            return resolve_mod_extraction_root(&dirs[0]);
+        }
+    }
+
+    Ok(extracted_dir.to_path_buf())
+}
+
+pub fn detect_installed_executable(target_dir: &Path) -> Result<String, String> {
+    let entries = std::fs::read_dir(fs_path(target_dir))
+        .map_err(|err| format!("Failed to read target directory: {err}"))?;
+
+    let mut exe_files = Vec::new();
+
+    for entry in entries {
+        let entry = entry.map_err(|err| format!("Failed to read entry: {err}"))?;
+        let path = entry.path();
+        if path.is_file() {
+            if let Some(ext) = path.extension() {
+                if ext.to_ascii_lowercase() == "exe" {
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        let name_lower = name.to_lowercase();
+                        if name_lower != "python.exe" && name_lower != "pythonw.exe" {
+                            exe_files.push(name.to_owned());
+                        }
                     }
                 }
-            }
-            "cleanup_temp" => {
-                let target = resolve_recipe_path(
-                    target_dir,
-                    step.target
-                        .as_deref()
-                        .ok_or_else(|| "Paso cleanup_temp requiere `target`.".to_owned())?,
-                )?;
-                if path_exists(&target) {
-                    if path_is_file(&target) {
-                        remove_file_safe(&target)?;
-                    } else {
-                        remove_dir_all_safe(&target)?;
-                    }
-                }
-            }
-            _ => {
-                return Err(format!(
-                    "Acción de instrucción no soportada: `{}`",
-                    step.action
-                ))
             }
         }
     }
-    Ok(())
-}
 
-pub fn recipe_action_label(action: &str) -> &'static str {
-    match action {
-        "extract_base" => "Extracting base game",
-        "extract_mod" => "Extracting mod",
-        "copy_overwrite" => "Installing translation files",
-        "delete_file" => "Removing conflicting files",
-        "cleanup_temp" => "Cleaning up temporary files",
-        _ => "Executing action",
+    let custom_64_exes: Vec<&String> = exe_files
+        .iter()
+        .filter(|name| {
+            let lower = name.to_lowercase();
+            lower != "ddlc.exe" && !lower.ends_with("-32.exe") && !lower.ends_with("32.exe")
+        })
+        .collect();
+
+    if let Some(&exe_name) = custom_64_exes.first() {
+        return Ok(exe_name.clone());
     }
+
+    let custom_any_exes: Vec<&String> = exe_files
+        .iter()
+        .filter(|name| {
+            let lower = name.to_lowercase();
+            lower != "ddlc.exe"
+        })
+        .collect();
+
+    if let Some(&exe_name) = custom_any_exes.first() {
+        return Ok(exe_name.clone());
+    }
+
+    Ok("DDLC.exe".to_owned())
 }
 
+#[allow(dead_code)]
 pub fn resolve_recipe_path(root: &Path, recipe_relative_path: &str) -> Result<PathBuf, String> {
     let trimmed = recipe_relative_path.trim();
     if trimmed.is_empty() {
@@ -144,7 +190,7 @@ pub fn resolve_recipe_path(root: &Path, recipe_relative_path: &str) -> Result<Pa
     let recipe_path = Path::new(trimmed);
     if recipe_path.is_absolute() {
         return Err(format!(
-            "Las rutas absolutas no están permitidas en las instrucciones: `{trimmed}`"
+            "Absolute paths not allowed in instructions: `{trimmed}`"
         ));
     }
 
@@ -154,9 +200,7 @@ pub fn resolve_recipe_path(root: &Path, recipe_relative_path: &str) -> Result<Pa
             Component::CurDir => {}
             Component::Normal(segment) => normalized.push(segment),
             Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
-                return Err(format!(
-                    "Ruta insegura en las instrucciones (usa solo rutas relativas): `{trimmed}`"
-                ));
+                return Err(format!("Unsafe path segments in instructions: `{trimmed}`"));
             }
         }
     }
@@ -171,36 +215,26 @@ pub fn resolve_copy_source_path(source: &Path) -> Result<PathBuf, String> {
 
     let parent = source.parent().ok_or_else(|| {
         format!(
-            "No se pudo acceder a `{}` y no existe carpeta padre para inferencia.",
+            "Could not resolve parent directory for: `{}`",
             source.display()
         )
     })?;
     if !path_exists(parent) {
         return Err(format!(
-            "No se pudo acceder a `{}` porque la carpeta padre `{}` no existe.",
-            source.display(),
+            "Parent directory `{}` does not exist.",
             parent.display()
         ));
     }
 
-    let entries = fs::read_dir(fs_path(parent)).map_err(|err| {
-        format!(
-            "No se pudo leer `{}` para inferencia: {err}",
-            parent.display()
-        )
-    })?;
+    let entries = fs::read_dir(fs_path(parent))
+        .map_err(|err| format!("Failed to read directory `{}`: {err}", parent.display()))?;
     let mut available_dirs = Vec::new();
 
     for entry in entries {
-        let entry = entry.map_err(|err| {
-            format!(
-                "No se pudo inspeccionar contenido de `{}` para inferencia: {err}",
-                parent.display()
-            )
-        })?;
+        let entry = entry.map_err(|err| format!("Failed to read entry: {err}"))?;
         let file_type = entry
             .file_type()
-            .map_err(|err| format!("No se pudo leer tipo de entrada en inferencia: {err}"))?;
+            .map_err(|err| format!("Failed to read file type: {err}"))?;
         if file_type.is_dir() {
             available_dirs.push(parent.join(entry.file_name()));
         }
@@ -211,24 +245,14 @@ pub fn resolve_copy_source_path(source: &Path) -> Result<PathBuf, String> {
         if let Some(file_name) = source.file_name() {
             let path_with_suffix = inferred.join(file_name);
             if path_exists(&path_with_suffix) {
-                debug_log(format!(
-                    "copy_overwrite source missing. requested=`{}` inferred_with_suffix=`{}`",
-                    source.display(),
-                    path_with_suffix.display()
-                ));
                 return Ok(path_with_suffix);
             }
         }
-        debug_log(format!(
-            "copy_overwrite source missing. requested=`{}` inferred=`{}`",
-            source.display(),
-            inferred.display()
-        ));
         return Ok(inferred);
     }
 
     let available = if available_dirs.is_empty() {
-        "(ninguno)".to_owned()
+        "(none)".to_owned()
     } else {
         available_dirs
             .iter()
@@ -237,16 +261,13 @@ pub fn resolve_copy_source_path(source: &Path) -> Result<PathBuf, String> {
             .join(", ")
     };
     Err(format!(
-        "No se pudo acceder a `{}`. Directorios disponibles en `{}`: {}.",
-        source.display(),
-        parent.display(),
-        available
+        "Failed to locate source directory. Available subdirectories: {available}"
     ))
 }
 
 pub fn recursive_copy(source: &Path, destination: &Path) -> Result<(), String> {
     let source_meta = fs::metadata(fs_path(source))
-        .map_err(|err| format!("No se pudo acceder a `{}`: {err}", source.display()))?;
+        .map_err(|err| format!("Failed to access `{}`: {err}", source.display()))?;
 
     if source_meta.is_file() {
         copy_file_overwrite(source, destination)?;
@@ -254,24 +275,15 @@ pub fn recursive_copy(source: &Path, destination: &Path) -> Result<(), String> {
     }
 
     create_dir_all_safe(destination)?;
-    let entries = fs::read_dir(fs_path(source)).map_err(|err| {
-        format!(
-            "No se pudo leer el directorio `{}`: {err}",
-            source.display()
-        )
-    })?;
+    let entries = fs::read_dir(fs_path(source))
+        .map_err(|err| format!("Failed to read directory `{}`: {err}", source.display()))?;
 
     for entry in entries {
-        let entry = entry.map_err(|err| {
-            format!(
-                "No se pudo leer entrada en copia recursiva de `{}`: {err}",
-                source.display()
-            )
-        })?;
+        let entry = entry.map_err(|err| format!("Failed to copy entry: {err}"))?;
         let entry_path = entry.path();
         let relative_path = entry_path
             .strip_prefix(fs_path(source))
-            .map_err(|err| format!("No se pudo calcular ruta relativa: {err}"))?;
+            .map_err(|err| format!("Failed to resolve relative path: {err}"))?;
         let target_path = destination.join(relative_path);
 
         recursive_copy(&entry_path, &target_path)?;

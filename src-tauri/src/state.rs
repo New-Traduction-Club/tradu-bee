@@ -1,7 +1,7 @@
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     env,
     fs,
     path::{Path, PathBuf},
@@ -121,6 +121,10 @@ pub struct InstallationProgressEvent {
     pub status: String,
     pub state: String,
     pub error: Option<String>,
+    pub speed: Option<u64>,
+    pub eta: Option<u64>,
+    pub downloaded: Option<u64>,
+    pub total: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -134,6 +138,7 @@ pub struct ModProcessStatusEvent {
 #[derive(Clone, Default)]
 pub struct LauncherRuntimeState {
     pub running_processes: Arc<Mutex<HashMap<String, u32>>>,
+    pub cancelled_installations: Arc<Mutex<HashSet<String>>>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -624,6 +629,10 @@ pub fn emit_installation_progress_event(
     status: &str,
     state: &str,
     error: Option<String>,
+    speed: Option<u64>,
+    eta: Option<u64>,
+    downloaded: Option<u64>,
+    total: Option<u64>,
 ) {
     let _ = app.emit(
         "installation-progress",
@@ -633,6 +642,10 @@ pub fn emit_installation_progress_event(
             status: status.to_owned(),
             state: state.to_owned(),
             error,
+            speed,
+            eta,
+            downloaded,
+            total,
         },
     );
 }
@@ -643,6 +656,7 @@ pub fn validate_manifest_url(url: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn resolve_manifest_url(configured_url: Option<&str>) -> String {
     configured_url
         .map(str::trim)
