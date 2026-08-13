@@ -39,6 +39,8 @@ export const strings = {
   next: "Siguiente",
   close: "Cerrar",
   notifications: "Notificaciones",
-  showNotifications: "Notificaciones",
-  hide: "Ocultar"
+  showNotifications: "Mostrar notificaciones",
+  hide: "Ocultar",
+  searchPlaceholder: "Buscar...",
+  noSearchResults: "No se encontraron mods que coincidan con la búsqueda."
 };

@@ -523,6 +523,14 @@ function ExploreRoute({
   onOpenManualDownload,
   onSelectManualArchive,
 }: ExploreRouteProps) {
+  const [searchQuery, setSearchQuery] = useState("");
+  
+  const filteredMods = useMemo(() => {
+    if (!searchQuery.trim()) return mods;
+    const query = searchQuery.toLowerCase().trim();
+    return mods.filter((mod) => mod.name.toLowerCase().includes(query));
+  }, [mods, searchQuery]);
+
   const selectedInstalled = selectedMod
     ? installedBySlug.get(selectedMod.slug) ?? null
     : null;
@@ -544,9 +552,18 @@ function ExploreRoute({
             {loadingCatalog ? "Actualizando..." : "Actualizar"}
           </button>
         </div>
-        <div className="h-[calc(100%-49px)] overflow-y-auto p-3">
+        <div className="px-3 py-2 border-b border-slate-800 bg-slate-950/40">
+          <input
+            type="text"
+            placeholder={strings.searchPlaceholder}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full rounded-md border border-slate-800 bg-slate-950 px-2.5 py-1.5 text-xs text-slate-100 placeholder-slate-500 transition hover:border-slate-700 focus:border-yellow-500/50 focus:outline-none"
+          />
+        </div>
+        <div className="h-[calc(100%-102px)] overflow-y-auto p-3">
           <div className="space-y-2">
-            {mods.map((mod) => {
+            {filteredMods.map((mod) => {
               const installed = installedBySlug.has(mod.slug);
               const selected = selectedSlug === mod.slug;
               return (
@@ -580,9 +597,9 @@ function ExploreRoute({
                 </button>
               );
             })}
-            {mods.length === 0 && (
+            {filteredMods.length === 0 && (
               <p className="rounded-lg border border-dashed border-slate-700 p-4 text-sm text-slate-400">
-                Sin mods disponibles.
+                {searchQuery.trim() ? strings.noSearchResults : "Sin mods disponibles."}
               </p>
             )}
           </div>
